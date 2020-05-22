@@ -4,7 +4,7 @@
 
 #include <string>
 #include "person_action_detector.hpp"
-// #if defined(HAVE_OPENCV_GAPI)
+#if defined(HAVE_OPENCV_GAPI)
 #include <samples/ocv_common.hpp>
 #include <opencv2/gapi.hpp>
 #include <opencv2/gapi/core.hpp>
@@ -15,38 +15,36 @@
 #include <opencv2/gapi/cpu/gcpukernel.hpp>
 #include <opencv2/gapi/streaming/cap.hpp>
 
-const std::string actions[] = {
-    "sitting", "standing", "rising hand"
-};
-
 std::string getBinPath(const std::string & pathXML) {
     std::string pathBIN(pathXML); 
     return pathBIN.replace(pathBIN.size() - 3, 3 , "bin");
 }
+namespace show {
+    const std::string actions[] = {
+        "sitting", "standing", "rising hand"
+    };
 
-void DrawResults(cv::Mat &frame, const std::vector<cv::Rect> &faces) {
-    for (auto it = faces.begin(); it != faces.end(); ++it) {
-        const auto &rc = *it;
-        cv::rectangle(frame, rc, {200, 200, 200},  2);
+    void DrawResults(cv::Mat &frame, const std::vector<cv::Rect> &faces) {
+        for (auto it = faces.begin(); it != faces.end(); ++it) {
+            const auto &rc = *it;
+            cv::rectangle(frame, rc, {200, 200, 200},  2);
+        }
     }
-}
 
-void DrawResults(cv::Mat &frame, const std::vector<Detections> &persons) {
-    for (auto it = persons.begin(); it != persons.end(); ++it) {
-        const auto &rc = (*it).rect;
-        cv::rectangle(frame, rc, {200, 200, 200},  2);
-        std::stringstream ss;
-        ss << actions[(*it).action_label];
-        cv::putText(frame, ss.str(),
-                    cv::Point(rc.x, rc.y - 15),
-                    cv::FONT_HERSHEY_COMPLEX_SMALL,
-                    1,
-                    cv::Scalar(0, 0, 255));
+    void DrawResults(cv::Mat &frame, const std::vector<Detections> &persons) {
+        for (auto it = persons.begin(); it != persons.end(); ++it) {
+            const auto &rc = (*it).rect;
+            cv::rectangle(frame, rc, {200, 200, 200},  2);
+            std::stringstream ss;
+            ss << actions[(*it).action_label];
+            cv::putText(frame, ss.str(),
+                        cv::Point(rc.x, rc.y - 15),
+                        cv::FONT_HERSHEY_COMPLEX_SMALL,
+                        1,
+                        cv::Scalar(0, 0, 255));
+        }
     }
-}
-
-
-
+} // namespace show
 
 namespace {
     const std::string about =
@@ -133,67 +131,14 @@ namespace custom {
             action_conf_data.push_back(reinterpret_cast<float*>(in_ssd_anchor2.data));
             action_conf_data.push_back(reinterpret_cast<float*>(in_ssd_anchor3.data));
             action_conf_data.push_back(reinterpret_cast<float*>(in_ssd_anchor4.data));
-            
-            std::vector<Detections> all_detections;
-            
+                
             const cv::Size frame_size = in_frame.size();
-            int num_glob_anchors_ = 0;
-            std::vector<std::vector<int>> glob_anchor_map_;
-            glob_anchor_map_.resize(1);
-            glob_anchor_map_[0].resize(4);
-            for (int i = 0; i < 4; ++i) {
-                glob_anchor_map_[0][i] = num_glob_anchors_++;
-            }
-            for (int candidate = 0; candidate < NUM_CANDIDATES; ++candidate) {
-                const float detection_conf = det_conf_data[candidate * NUM_DETECTION_CLASSES + POSITIVE_DETECTION_IDX];
-                if (detection_conf < 0.4f) {
-                    continue;    
-                }
-                int head_id = 0;
-                const int head_p = candidate;
-                
-                const int head_num_anchors = 4;
-                const int anchor_id = head_p % head_num_anchors;
-                const int glob_anchor_id = glob_anchor_map_[head_id][anchor_id];
-                const float* anchor_conf_data = action_conf_data[glob_anchor_id];
-                const int action_conf_idx_shift = head_p / head_num_anchors * 3;
-                
-                const int action_conf_step = 1;
-                const float scale = 3.f;
-                int action_label = -1;
-                float action_max_exp_value = 0.f;
-                float action_sum_exp_values = 0.f;
-                for (size_t c = 0; c < 3; ++c) {
-                    float action_exp_value =
-                    std::exp(scale * anchor_conf_data[action_conf_idx_shift + c * action_conf_step]);
-                    action_sum_exp_values += action_exp_value;
-                    if (action_exp_value > action_max_exp_value) {
-                    action_max_exp_value = action_exp_value;
-                    action_label = c;
-                    }
-                }
-                float action_conf = action_max_exp_value / action_sum_exp_values;
-
-                if (action_label < 0 || action_conf < 0.75f) {
-                    action_label = 0;
-                    action_conf = 0.f;
-                }
-                
-   
-                const auto priorbox = ParseBBoxRecord(prior_data + candidate * SSD_PRIORBOX_RECORD_SIZE);
-                const auto encoded_box = ParseBBoxRecord(local_data + candidate * SSD_LOCATION_RECORD_SIZE);
-                const auto variances = ParseBBoxRecord(prior_data + (NUM_CANDIDATES + candidate) * SSD_PRIORBOX_RECORD_SIZE);
-                               
- 
-                all_detections.emplace_back(ConvertToRect(priorbox, variances, encoded_box, frame_size),
-                                            action_label, detection_conf, action_conf);
-            }
-            SoftNonMaxSuppression(all_detections, 0.6f, 200, 0.4f, out_detections);           
+            std::unique_ptr<ActionDetector> detector(new ActionDetector);
+            detector->GetPostProcResult(local_data, det_conf_data, prior_data, action_conf_data, frame_size, out_detections);
         }
     };
 }// namespace custom
     
-
 int main(int argc, char* argv[]) {
     cv::CommandLineParser cmd(argc, argv, keys);
     if (cmd.has("help")) {
@@ -201,7 +146,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    cv::GComputation pp([=]() {
+    cv::GComputation pp([]() {
         cv::GMat in;
         cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
         cv::GArray<cv::Rect> faces = custom::PostProc::on(detections, in);
@@ -238,14 +183,14 @@ int main(int argc, char* argv[]) {
         paPathXML,
         getBinPath(paPathXML),
         cmd.get<std::string>("fdd"),
-   }.cfgOutputLayers({"mbox_loc1/out/conv/flat", 
+    }.cfgOutputLayers({"mbox_loc1/out/conv/flat", 
                        "mbox_main_conf/out/conv/flat/softmax/flat",
                        "mbox/priorbox",
                        "out/anchor1",
                        "out/anchor2",
                        "out/anchor3",
                        "out/anchor4"
-                       });
+                       }); // 0006 have another outputs
     auto kernels = cv::gapi::kernels<custom::OCVPostProc, custom::OCVPersonDetActionRec>();
     auto networks = cv::gapi::networks(det_net, pos_act_net);
 
@@ -253,12 +198,11 @@ int main(int argc, char* argv[]) {
 
     const std::string input = cmd.get<std::string>("input");
     auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(input);
-    
     cc.setSource(cv::gin(in_src));
     cc.start();
     
+
     cv::Mat frame;
-    
     std::vector<cv::Rect> faces;
     std::vector<Detections> persons;
     while (cc.running()) {
@@ -267,11 +211,11 @@ int main(int argc, char* argv[]) {
             if (cv::waitKey(1) >= 0) break;
             else continue;
         }
-        DrawResults(frame, faces);
-        DrawResults(frame, persons);
-        cv::imshow("Out", frame);
+        show::DrawResults(frame, faces);
+        show::DrawResults(frame, persons);
+        cv::imshow("Result", frame);
     }
 	std::cout << "==========OK==========" << std::endl;
     return 0;
 }
-// #endif  // HAVE_OPECV_GAPI
+#endif  // HAVE_OPECV_GAPI

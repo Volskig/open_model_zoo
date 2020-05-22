@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 #include "person_action_detector.hpp"
-#include <algorithm>
-#include <vector>
-#include <opencv2/imgproc/imgproc.hpp>
+
 
 #define SSD_LOCATION_RECORD_SIZE 4
 #define SSD_PRIORBOX_RECORD_SIZE 4
@@ -13,31 +11,80 @@
 #define NUM_CANDIDATES 4300
 #define INVALID_TOP_K_IDX -1
 
-struct Detections {
-    cv::Rect rect;
-    int action_label;
-    float detection_conf;
-    float action_conf; 
+void ActionDetector::GetPostProcResult(const float* local_data,
+                                       const float* det_conf_data,
+                                       const float* prior_data,
+                                       const std::vector<float*>& action_conf_data,
+                                       const cv::Size& frame_size,
+                                       std::vector<Detections>& out_detections) {
+    std::vector<Detections> all_detections;
+    
+    const auto& head_anchors = config_.old_anchors;
+    const int num_heads = head_anchors.size();
 
-    Detections(const cv::Rect rect,
-               const int action_label,
-               const float detection_conf,
-               const float action_conf) : rect(rect),
-                                          action_label(action_label),
-                                          detection_conf(detection_conf),
-                                          action_conf(action_conf) {}
-};
+    head_ranges_.resize(num_heads + 1);
+    glob_anchor_map_.resize(num_heads);
+    head_step_sizes_.resize(num_heads);
 
-struct Bbox {
-    float xmin;
-    float ymin;
-    float xmax;
-    float ymax;
-};
+    num_glob_anchors_ = 0;
+    head_ranges_[0] = 0;        
+    glob_anchor_map_[0].resize(head_anchors[0/*head_id*/]);
+    for (int anchor_id = 0; anchor_id < head_anchors[0]; ++anchor_id) {
+        glob_anchor_map_[0][anchor_id] = num_glob_anchors_++;
+        head_step_sizes_[0] = 1;
+    }
+    for (int candidate = 0; candidate < NUM_CANDIDATES; ++candidate) {
+        const float detection_conf = det_conf_data[candidate * NUM_DETECTION_CLASSES + POSITIVE_DETECTION_IDX];
+        if (detection_conf < config_.detection_confidence_threshold) {
+            continue;    
+        }
+        int action_label = -1;
+        float action_conf = 0.f;
+        int head_id = 0;
+        const int head_p = candidate - head_ranges_[head_id];
+                
+        const int head_num_anchors = config_.old_anchors[head_id];
+        const int anchor_id = head_p % head_num_anchors;
+        const int glob_anchor_id = glob_anchor_map_[head_id][anchor_id];
+        const float* anchor_conf_data = action_conf_data[glob_anchor_id];
+        const int action_conf_idx_shift = head_p / head_num_anchors * config_.num_action_classes;
+                
+        const int action_conf_step = head_step_sizes_[head_id];
+        const float scale = config_.old_action_scale;
+        float action_max_exp_value = 0.f;
+        float action_sum_exp_values = 0.f;
+        for (size_t c = 0; c < config_.num_action_classes; ++c) {
+            float action_exp_value = std::exp(scale * anchor_conf_data[action_conf_idx_shift + c * action_conf_step]);
+            action_sum_exp_values += action_exp_value;
+            if (action_exp_value > action_max_exp_value) {
+                action_max_exp_value = action_exp_value;
+                action_label = c;
+            }
+        }
+        action_conf = action_max_exp_value / action_sum_exp_values;
 
-inline cv::Rect ConvertToRect(const Bbox& prior_bbox, const Bbox& variances,
-        const Bbox& encoded_bbox, const cv::Size& frame_size) {
-    /** Convert prior bbox to CV_Rect **/
+        if (action_label < 0 || action_conf < config_.action_confidence_threshold) {
+            action_label = config_.default_action_id;
+            action_conf = 0.f;
+        }  
+        const auto priorbox = ParseBBoxRecord(prior_data + candidate * SSD_PRIORBOX_RECORD_SIZE);
+        const auto encoded_box = ParseBBoxRecord(local_data + candidate * SSD_LOCATION_RECORD_SIZE);
+        const auto variances   = ParseBBoxRecord(prior_data + (NUM_CANDIDATES + candidate) * SSD_PRIORBOX_RECORD_SIZE);
+ 
+        all_detections.emplace_back(ConvertToRect(priorbox, variances, encoded_box, frame_size),
+                                            action_label, detection_conf, action_conf);
+        }
+        SoftNonMaxSuppression(all_detections, 
+                              config_.nms_sigma,
+                              config_.keep_top_k,
+                              config_.detection_confidence_threshold,
+                              out_detections);
+}
+
+inline cv::Rect ActionDetector::ConvertToRect(const Bbox& prior_bbox,
+                                              const Bbox& variances,
+                                              const Bbox& encoded_bbox,
+                                              const cv::Size& frame_size) const {
     const float prior_width = prior_bbox.xmax - prior_bbox.xmin;
     const float prior_height = prior_bbox.ymax - prior_bbox.ymin;
     const float prior_center_x = 0.5f * (prior_bbox.xmin + prior_bbox.xmax);
@@ -66,10 +113,11 @@ inline cv::Rect ConvertToRect(const Bbox& prior_bbox, const Bbox& variances,
                     static_cast<int>((decoded_bbox_ymax - decoded_bbox_ymin) * frame_size.height));
 }
 
-inline void SoftNonMaxSuppression(const std::vector<Detections>& detections,
-                           const float& sigma, const int& top_k, 
-                           const float& min_det_conf,
-                           std::vector<Detections>& out_detections) {
+inline void ActionDetector::SoftNonMaxSuppression(const std::vector<Detections>& detections,
+                                                  const float& sigma,
+                                                  const int& top_k, 
+                                                  const float& min_det_conf,
+                                                  std::vector<Detections>& out_detections) const {
     /** Store input bbox scores **/
     std::vector<float> scores(detections.size());
     for (size_t i = 0; i < detections.size(); ++i) {
@@ -135,14 +183,11 @@ inline void SoftNonMaxSuppression(const std::vector<Detections>& detections,
         out_detections.emplace_back(detections[out_indices[i]]);
     }
 }
-inline Bbox ParseBBoxRecord(const float* data) {
+inline ActionDetector::Bbox ActionDetector::ParseBBoxRecord(const float* data) const {
     Bbox box;
     box.xmin = data[0];
     box.ymin = data[1];
     box.xmax = data[2];
     box.ymax = data[3];
     return box;
-}
-namespace custom {
-
 }

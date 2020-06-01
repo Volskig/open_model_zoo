@@ -59,6 +59,8 @@ public:
     }
 
     DetectedObjects fetchResults() override;
+    // TODO: Remove or change this when fix face detection
+    DetectedObjects fetchResults(const cv::Mat&, const cv::Mat&) override;
 };
 
 }  // namespace detection

@@ -9,7 +9,6 @@
 #include <limits>
 #include <numeric>
 #include <opencv2/imgproc/imgproc.hpp>
-
 using namespace InferenceEngine;
 
 #define SSD_LOCATION_RECORD_SIZE 4
@@ -75,7 +74,6 @@ ActionDetection::ActionDetection(const ActionDetectorConfig& config)
 
     const auto& head_anchors = new_network_ ? config_.new_anchors : config_.old_anchors;
     const int num_heads = head_anchors.size();
-
     head_ranges_.resize(num_heads + 1);
     glob_anchor_map_.resize(num_heads);
     head_step_sizes_.resize(num_heads);
@@ -105,7 +103,6 @@ ActionDetection::ActionDetection(const ActionDetectorConfig& config)
 
             const int anchor_size = anchor_height * anchor_width;
             head_shift += anchor_size;
-
             head_step_sizes_[head_id] = new_network_ ? anchor_size : 1;
             glob_anchor_map_[head_id][anchor_id] = num_glob_anchors_++;
         }
@@ -186,7 +183,6 @@ ActionDetection::GeneratePriorBox(int pos, int step, const cv::Size2f& anchor,
 cv::Rect ActionDetection::ConvertToRect(
         const NormalizedBBox& prior_bbox, const NormalizedBBox& variances,
         const NormalizedBBox& encoded_bbox, const cv::Size& frame_size) const {
-    /** Convert prior bbox to CV_Rect **/
     const float prior_width = prior_bbox.xmax - prior_bbox.xmin;
     const float prior_height = prior_bbox.ymax - prior_bbox.ymin;
     const float prior_center_x = 0.5f * (prior_bbox.xmin + prior_bbox.xmax);
@@ -207,7 +203,6 @@ cv::Rect ActionDetection::ConvertToRect(
     const float decoded_bbox_ymin = decoded_bbox_center_y - 0.5f * decoded_bbox_height;
     const float decoded_bbox_xmax = decoded_bbox_center_x + 0.5f * decoded_bbox_width;
     const float decoded_bbox_ymax = decoded_bbox_center_y + 0.5f * decoded_bbox_height;
-
     /** Convert decoded bbox to CV_Rect **/
     return cv::Rect(static_cast<int>(decoded_bbox_xmin * frame_size.width),
                     static_cast<int>(decoded_bbox_ymin * frame_size.height),
@@ -245,9 +240,11 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
 
         /** Estimate the action head ID **/
         int head_id = 0;
+
         while (p >= head_ranges_[head_id + 1]) {
             ++head_id;
         }
+
         const int head_p = p - head_ranges_[head_id];
 
         /** Estimate the action anchor ID **/
@@ -287,7 +284,6 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
             action_label = config_.default_action_id;
             action_conf = 0.f;
         }
-
         /** Parse bbox from the SSD Detection output **/
         const auto priorbox = new_network_
                                 ? GeneratePriorBox(head_p / head_num_anchors,

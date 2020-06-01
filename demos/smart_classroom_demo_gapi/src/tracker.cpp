@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -308,8 +308,7 @@ void Tracker::UpdateLostTracks(const std::set<size_t> &track_ids) {
     }
 }
 
-void Tracker::Process(const cv::Mat &frame, const TrackedObjects &detections,
-                      int frame_idx) {
+void Tracker::Process(const cv::Mat &frame, const TrackedObjects &detections) {
     if (frame_size_ == cv::Size()) {
         frame_size_ = frame.size();
     } else {
@@ -318,9 +317,9 @@ void Tracker::Process(const cv::Mat &frame, const TrackedObjects &detections,
 
     FilterDetectionsAndStore(detections);
     for (auto &obj : detections_) {
-        obj.frame_idx = frame_idx;
+        obj.frame_idx = pipeline_idx;
     }
-
+    ++pipeline_idx;
     auto active_tracks = active_track_ids_;
 
     if (!active_tracks.empty() && !detections_.empty()) {
@@ -480,17 +479,6 @@ bool Tracker::IsTrackValid(size_t id) const {
 
 bool Tracker::IsTrackForgotten(size_t id) const {
     return tracks_.at(id).lost > params_.forget_delay;
-}
-
-void Tracker::Reset() {
-    active_track_ids_.clear();
-    tracks_.clear();
-
-    detections_.clear();
-
-    tracks_counter_ = 0;
-
-    frame_size_ = cv::Size();
 }
 
 TrackedObjects Tracker::TrackedDetections() const {

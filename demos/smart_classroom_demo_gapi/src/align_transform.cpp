@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -52,6 +52,9 @@ void AlignFaces(std::vector<cv::Mat>* face_images,
                 std::vector<cv::Mat>* landmarks_vec) {
     if (landmarks_vec->size() == 0) {
         return;
+    }
+    for (auto& el : *landmarks_vec) {
+        el = el.reshape(1, { 5, 2 });
     }
     CV_Assert(face_images->size() == landmarks_vec->size());
     cv::Mat ref_landmarks = cv::Mat(5, 2, CV_32F);

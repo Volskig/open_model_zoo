@@ -5,11 +5,12 @@
 file (GLOB_RECURSE SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 file (GLOB_RECURSE HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp)
 
-ie_add_sample(NAME smart_classroom_demo
+ie_add_sample(NAME smart_classroom_demo_gapi
               SOURCES ${SOURCES}
               HEADERS ${HEADERS}
               INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
               DEPENDENCIES monitors
-              OPENCV_DEPENDENCIES highgui)
+              OPENCV_DEPENDENCIES highgui
+              OPENCV_DEPENDENCIES gapi)
 
-target_link_libraries(smart_classroom_demo PRIVATE ngraph::ngraph)
+target_link_libraries(smart_classroom_demo_gapi PRIVATE ngraph::ngraph)

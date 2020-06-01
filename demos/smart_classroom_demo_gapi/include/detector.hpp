@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,8 +9,6 @@
 #include <vector>
 
 #include <opencv2/core/core.hpp>
-
-#include "cnn.hpp"
 
 namespace detection {
 
@@ -24,41 +22,28 @@ struct DetectedObject {
 
 using DetectedObjects = std::vector<DetectedObject>;
 
-struct DetectorConfig : public CnnConfig {
-    explicit DetectorConfig(const std::string& path_to_model)
-        : CnnConfig(path_to_model) {}
-
+struct DetectorConfig {
     float confidence_threshold{0.6f};
     float increase_scale_x{1.15f};
     float increase_scale_y{1.15f};
-    bool is_async = true;
-    int input_h = 600;
-    int input_w = 600;
 };
 
-class FaceDetection : public AsyncDetection<DetectedObject>, public BaseCnnDetection {
+class FaceDetection {
 private:
     DetectorConfig config_;
-    InferenceEngine::ExecutableNetwork net_;
-    std::string input_name_;
-    std::string output_name_;
     int max_detections_count_ = 0;
     int object_size_ = 0;
-    int enqueued_frames_ = 0;
     float width_ = 0;
     float height_ = 0;
 
 public:
-    explicit FaceDetection(const DetectorConfig& config);
+    explicit FaceDetection(const DetectorConfig& config) : config_(config) {}
 
-    void submitRequest() override;
-    void enqueue(const cv::Mat &frame) override;
-    void wait() override { BaseCnnDetection::wait(); }
-    void printPerformanceCounts(const std::string &fullDeviceName) override {
-        BaseCnnDetection::printPerformanceCounts(fullDeviceName);
-    }
+    DetectedObjects fetchResults(const cv::Mat&, const cv::Mat&);
+};
 
-    DetectedObjects fetchResults() override;
+struct FaceDetectionKernelInput {
+    std::shared_ptr<detection::FaceDetection> ptr;
 };
 
 }  // namespace detection

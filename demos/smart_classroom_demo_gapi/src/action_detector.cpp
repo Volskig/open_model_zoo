@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,8 +9,7 @@
 #include <limits>
 #include <numeric>
 #include <opencv2/imgproc/imgproc.hpp>
-
-using namespace InferenceEngine;
+#include <opencv2/gapi.hpp>
 
 #define SSD_LOCATION_RECORD_SIZE 4
 #define SSD_PRIORBOX_RECORD_SIZE 4
@@ -18,64 +17,27 @@ using namespace InferenceEngine;
 #define POSITIVE_DETECTION_IDX 1
 #define INVALID_TOP_K_IDX -1
 
-template <typename T>
-bool SortScorePairDescend(const std::pair<float, T>& pair1,
-                          const std::pair<float, T>& pair2) {
-    return pair1.first > pair2.first;
-}
-
-void ActionDetection::submitRequest() {
-    if (!enqueued_frames_) return;
-    enqueued_frames_ = 0;
-    BaseCnnDetection::submitRequest();
-}
-
-void ActionDetection::enqueue(const cv::Mat &frame) {
-    if (!request) {
-        request = net_.CreateInferRequestPtr();
-    }
-
-    width_ = static_cast<float>(frame.cols);
-    height_ = static_cast<float>(frame.rows);
-
-    Blob::Ptr inputBlob = request->GetBlob(input_name_);
-
-    matU8ToBlob<uint8_t>(frame, inputBlob);
-
-    enqueued_frames_ = 1;
-}
-
 ActionDetection::ActionDetection(const ActionDetectorConfig& config)
-        : BaseCnnDetection(config.is_async), config_(config) {
-    topoName = "action detector";
-    auto network = config.ie.ReadNetwork(config.path_to_model);
+        : config_(config) {
+    new_network_ = config_.net_with_six_actions;
+    network_input_size_.height = config_.input_height;
+    network_input_size_.width = config_.input_width;
+    binary_task_ = config_.num_action_classes == 2;
+}
 
-    network.setBatchSize(config.max_batch_size);
-
-    InputsDataMap inputInfo(network.getInputsInfo());
-    if (inputInfo.size() != 1) {
-        THROW_IE_EXCEPTION << "Action Detection network should have only one input";
+DetectedActions ActionDetection::fetchResults(const std::vector<cv::Mat> &ssd_results,
+                                              const cv::Mat &in_frame) {
+    width_ = static_cast<float>(in_frame.cols);
+    height_ = static_cast<float>(in_frame.rows);
+    /** Anchors list **/
+    std::vector<cv::Mat> add_conf_out;
+    if(new_network_) {
+        add_conf_out.emplace_back(ssd_results.at(2));
+    } else {
+        add_conf_out.insert(add_conf_out.end(), ssd_results.begin() + 3, ssd_results.end());
     }
-    InputInfo::Ptr inputInfoFirst = inputInfo.begin()->second;
-    inputInfoFirst->setPrecision(Precision::U8);
-    inputInfoFirst->getInputData()->setLayout(Layout::NCHW);
-
-    network_input_size_.height = inputInfoFirst->getTensorDesc().getDims()[2];
-    network_input_size_.width = inputInfoFirst->getTensorDesc().getDims()[3];
-
-    OutputsDataMap outputInfo(network.getOutputsInfo());
-
-    for (auto&& item : outputInfo) {
-        item.second->setPrecision(Precision::FP32);
-    }
-
-    new_network_ = outputInfo.find(config_.new_loc_blob_name) != outputInfo.end();
-    input_name_ = inputInfo.begin()->first;
-    net_ = config_.ie.LoadNetwork(network, config_.deviceName);
-
     const auto& head_anchors = new_network_ ? config_.new_anchors : config_.old_anchors;
     const int num_heads = head_anchors.size();
-
     head_ranges_.resize(num_heads + 1);
     glob_anchor_map_.resize(num_heads);
     head_step_sizes_.resize(num_heads);
@@ -88,79 +50,32 @@ ActionDetection::ActionDetection(const ActionDetectorConfig& config)
 
         int anchor_height, anchor_width;
         for (int anchor_id = 0; anchor_id < head_anchors[head_id]; ++anchor_id) {
-            const auto glob_anchor_name = new_network_
-                  ? config_.new_action_conf_blob_name_prefix + std::to_string(head_id + 1) +
-                    config_.new_action_conf_blob_name_suffix + std::to_string(anchor_id + 1)
-                  : config_.old_action_conf_blob_name_prefix + std::to_string(anchor_id + 1);
-            glob_anchor_names_.push_back(glob_anchor_name);
-
-            const auto anchor_dims = outputInfo[glob_anchor_name]->getDims();
+            cv::MatSize anchor_dims(nullptr);
+            if (head_anchors[head_id] == 1) {
+                anchor_dims = add_conf_out[anchor_id].size;
+            } else {
+                anchor_dims = add_conf_out[anchor_id + num_heads - 1].size;
+            }
             anchor_height = new_network_ ? anchor_dims[2] : anchor_dims[1];
             anchor_width = new_network_ ? anchor_dims[3] : anchor_dims[2];
-            std::size_t action_dimension_idx = new_network_ ? 1 : 3;
-            if (anchor_dims[action_dimension_idx] != config_.num_action_classes) {
-                throw std::logic_error("The number of specified actions and the number of actions predicted by "
-                    "the Person/Action Detection Retail model must match");
+            std::size_t action_dimention_idx = new_network_ ? 1 : 3;
+            if (static_cast<size_t>(anchor_dims[action_dimention_idx]) != config_.num_action_classes) {
+                GAPI_Assert(false && "The number of specified actions and the number of actions predicted by \
+ the Person/Action Detection Retail model must match");
             }
 
             const int anchor_size = anchor_height * anchor_width;
             head_shift += anchor_size;
-
             head_step_sizes_[head_id] = new_network_ ? anchor_size : 1;
             glob_anchor_map_[head_id][anchor_id] = num_glob_anchors_++;
         }
-
         head_ranges_[head_id + 1] = head_shift;
         head_blob_sizes_.emplace_back(anchor_width, anchor_height);
     }
 
     num_candidates_ = head_shift;
-
-    binary_task_ = config_.num_action_classes == 2;
-}
-
-std::vector<int> ieSizeToVector(const SizeVector& ie_output_dims) {
-    std::vector<int> blob_sizes(ie_output_dims.size(), 0);
-    for (size_t i = 0; i < blob_sizes.size(); ++i) {
-        blob_sizes[i] = ie_output_dims[i];
-    }
-    return blob_sizes;
-}
-
-DetectedActions ActionDetection::fetchResults() {
-    const auto loc_blob_name = new_network_ ? config_.new_loc_blob_name : config_.old_loc_blob_name;
-    const auto det_conf_blob_name = new_network_ ? config_.new_det_conf_blob_name : config_.old_det_conf_blob_name;
-
-    LockedMemory<const void> locBlobMapped = as<MemoryBlob>(request->GetBlob(loc_blob_name))->rmap();
-    const cv::Mat loc_out(ieSizeToVector(request->GetBlob(loc_blob_name)->getTensorDesc().getDims()),
-                          CV_32F, locBlobMapped.as<float*>());
-
-    LockedMemory<const void> detConfBlobMapped = as<MemoryBlob>(request->GetBlob(det_conf_blob_name))->rmap();
-    const cv::Mat main_conf_out(ieSizeToVector(request->GetBlob(det_conf_blob_name)->getTensorDesc().getDims()),
-                                CV_32F, detConfBlobMapped.as<float*>());
-
-    std::vector<LockedMemory<const void>> blobsMapped;
-    std::vector<cv::Mat> add_conf_out;
-    for (int glob_anchor_id = 0; glob_anchor_id < num_glob_anchors_; ++glob_anchor_id) {
-        const auto& blob_name = glob_anchor_names_[glob_anchor_id];
-        blobsMapped.push_back(as<MemoryBlob>(request->GetBlob(blob_name))->rmap());
-        add_conf_out.emplace_back(ieSizeToVector(request->GetBlob(blob_name)->getTensorDesc().getDims()),
-                                  CV_32F, blobsMapped[glob_anchor_id].as<float*>());
-    }
-
     /** Parse detections **/
-    if (new_network_) {
-        const cv::Mat priorbox_out;
-        return GetDetections(loc_out, main_conf_out, priorbox_out, add_conf_out,
-                             cv::Size(static_cast<int>(width_), static_cast<int>(height_)));
-    }
-
-    LockedMemory<const void> priorboxOutBlobMapped =
-        as<MemoryBlob>(request->GetBlob(config_.old_priorbox_blob_name))->rmap();
-    const cv::Mat priorbox_out = cv::Mat(ieSizeToVector(request->
-                                         GetBlob(config_.old_priorbox_blob_name)->getTensorDesc().getDims()), CV_32F,
-                                         priorboxOutBlobMapped.as<float*>());
-    return GetDetections(loc_out, main_conf_out, priorbox_out, add_conf_out,
+    return GetDetections(ssd_results.at(0), ssd_results.at(1), ssd_results.at(2), add_conf_out,
                          cv::Size(static_cast<int>(width_), static_cast<int>(height_)));
 }
 
@@ -177,25 +92,23 @@ ActionDetection::ParseBBoxRecord(const float* data, bool inverse) const {
 inline ActionDetection::NormalizedBBox
 ActionDetection::GeneratePriorBox(int pos, int step, const cv::Size2f& anchor,
                                   const cv::Size& blob_size) const {
-    const int row = pos / blob_size.width;
-    const int col = pos % blob_size.width;
+    const float row = static_cast<float>(pos / blob_size.width);
+    const float col = static_cast<float>(pos % blob_size.width);
 
     const float center_x = (col + 0.5f) * static_cast<float>(step);
     const float center_y = (row + 0.5f) * static_cast<float>(step);
 
     NormalizedBBox bbox;
-    bbox.xmin = (center_x - 0.5f * anchor.width) / static_cast<float>(network_input_size_.width);
+    bbox.xmin = (center_x - 0.5f * anchor.width)  / static_cast<float>(network_input_size_.width);
     bbox.ymin = (center_y - 0.5f * anchor.height) / static_cast<float>(network_input_size_.height);
-    bbox.xmax = (center_x + 0.5f * anchor.width) / static_cast<float>(network_input_size_.width);
+    bbox.xmax = (center_x + 0.5f * anchor.width)  / static_cast<float>(network_input_size_.width);
     bbox.ymax = (center_y + 0.5f * anchor.height) / static_cast<float>(network_input_size_.height);
 
     return bbox;
 }
 
-cv::Rect ActionDetection::ConvertToRect(
-        const NormalizedBBox& prior_bbox, const NormalizedBBox& variances,
-        const NormalizedBBox& encoded_bbox, const cv::Size& frame_size) const {
-    /** Convert prior bbox to CV_Rect **/
+cv::Rect ActionDetection::ConvertToRect(const NormalizedBBox& prior_bbox, const NormalizedBBox& variances,
+                                        const NormalizedBBox& encoded_bbox, const cv::Size& frame_size) const {
     const float prior_width = prior_bbox.xmax - prior_bbox.xmin;
     const float prior_height = prior_bbox.ymax - prior_bbox.ymin;
     const float prior_center_x = 0.5f * (prior_bbox.xmin + prior_bbox.xmax);
@@ -216,7 +129,6 @@ cv::Rect ActionDetection::ConvertToRect(
     const float decoded_bbox_ymin = decoded_bbox_center_y - 0.5f * decoded_bbox_height;
     const float decoded_bbox_xmax = decoded_bbox_center_x + 0.5f * decoded_bbox_width;
     const float decoded_bbox_ymax = decoded_bbox_center_y + 0.5f * decoded_bbox_height;
-
     /** Convert decoded bbox to CV_Rect **/
     return cv::Rect(static_cast<int>(decoded_bbox_xmin * frame_size.width),
                     static_cast<int>(decoded_bbox_ymin * frame_size.height),
@@ -225,8 +137,8 @@ cv::Rect ActionDetection::ConvertToRect(
 }
 
 DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat& main_conf,
-        const cv::Mat& priorboxes, const std::vector<cv::Mat>& add_conf,
-        const cv::Size& frame_size) const {
+                                               const cv::Mat& priorboxes, const std::vector<cv::Mat>& add_conf,
+                                               const cv::Size& frame_size) const {
     /** Prepare input data buffers **/
     const float* loc_data = reinterpret_cast<float*>(loc.data);
     const float* det_conf_data = reinterpret_cast<float*>(main_conf.data);
@@ -268,8 +180,8 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
         const int glob_anchor_id = glob_anchor_map_[head_id][anchor_id];
         const float* anchor_conf_data = action_conf_data[glob_anchor_id];
         const int action_conf_idx_shift = new_network_
-                                            ? head_p / head_num_anchors
-                                            : head_p / head_num_anchors * config_.num_action_classes;
+                                              ? head_p / head_num_anchors
+                                              : head_p / head_num_anchors * config_.num_action_classes;
         const int action_conf_step = head_step_sizes_[head_id];
         const float scale = new_network_ ? config_.new_action_scale : config_.old_action_scale;
         int action_label = -1;
@@ -296,14 +208,13 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
             action_label = config_.default_action_id;
             action_conf = 0.f;
         }
-
         /** Parse bbox from the SSD Detection output **/
         const auto priorbox = new_network_
-                                ? GeneratePriorBox(head_p / head_num_anchors,
-                                                   config_.new_det_heads[head_id].step,
-                                                   config_.new_det_heads[head_id].anchors[anchor_id],
-                                                   head_blob_sizes_[head_id])
-                                : ParseBBoxRecord(prior_data + p * SSD_PRIORBOX_RECORD_SIZE, false);
+                                  ? GeneratePriorBox(head_p / head_num_anchors,
+                                                     config_.new_det_heads[head_id].step,
+                                                     config_.new_det_heads[head_id].anchors[anchor_id],
+                                                     head_blob_sizes_[head_id])
+                                  : ParseBBoxRecord(prior_data + p * SSD_PRIORBOX_RECORD_SIZE, false);
         const auto variance =
                 ParseBBoxRecord(new_network_
                                     ? config_.variances
@@ -313,7 +224,6 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
                 ParseBBoxRecord(loc_data + p * SSD_LOCATION_RECORD_SIZE, new_network_);
 
         const auto det_rect = ConvertToRect(priorbox, variance, encoded_bbox, frame_size);
-
         /** Store detected action **/
         valid_detections.emplace_back(det_rect, action_label, detection_conf, action_conf);
     }
@@ -323,7 +233,6 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
     SoftNonMaxSuppression(valid_detections, config_.nms_sigma, config_.keep_top_k,
                           config_.detection_confidence_threshold,
                           &out_det_indices);
-
     DetectedActions detections;
     for (size_t i = 0; i < out_det_indices.size(); ++i) {
         detections.emplace_back(valid_detections[out_det_indices[i]]);
@@ -342,8 +251,8 @@ void ActionDetection::SoftNonMaxSuppression(const DetectedActions& detections,
 
     /** Estimate maximum number of algorithm iterations **/
     size_t max_queue_size = top_k > INVALID_TOP_K_IDX
-                               ? std::min(static_cast<size_t>(top_k), scores.size())
-                               : scores.size();
+                                ? std::min(static_cast<size_t>(top_k), scores.size())
+                                : scores.size();
 
     /** Select top-k score indices **/
     std::vector<size_t> score_idx(scores.size());

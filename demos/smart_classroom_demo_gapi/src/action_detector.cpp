@@ -240,7 +240,7 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
 
         /** Estimate the action head ID **/
         int head_id = 0;
-// std::cout << "Size =" << head_ranges_.size() << std::endl;
+
         while (p >= head_ranges_[head_id + 1]) {
             ++head_id;
         }

@@ -49,14 +49,75 @@ cv::Rect IncreaseRect(const cv::Rect& r, float coeff_x,
 }
 }  // namespace
 
-DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const cv::Mat& frame) {
-    const float* data = reinterpret_cast<float*>(in_ssd_result.data);
-    DetectedObjects results;
+void FaceDetection::submitRequest() {
+    if (!enqueued_frames_) return;
+    enqueued_frames_ = 0;
+    BaseCnnDetection::submitRequest();
+}
+
+void FaceDetection::enqueue(const cv::Mat &frame) {
+    if (!request) {
+        request = net_.CreateInferRequestPtr();
+    }
 
     width_ = static_cast<float>(frame.cols);
     height_ = static_cast<float>(frame.rows);
-    max_detections_count_ = in_ssd_result.size[2];
-    object_size_ = in_ssd_result.size[3];
+
+    Blob::Ptr inputBlob = request->GetBlob(input_name_);
+
+    matU8ToBlob<uint8_t>(frame, inputBlob);
+
+    enqueued_frames_ = 1;
+}
+
+FaceDetection::FaceDetection(const DetectorConfig& config) :
+        BaseCnnDetection(config.is_async), config_(config) {
+    topoName = "face detector";
+    auto cnnNetwork = config.ie.ReadNetwork(config.path_to_model);
+
+    InputsDataMap inputInfo(cnnNetwork.getInputsInfo());
+    if (inputInfo.size() != 1) {
+        THROW_IE_EXCEPTION << "Face Detection network should have only one input";
+    }
+    InputInfo::Ptr inputInfoFirst = inputInfo.begin()->second;
+    inputInfoFirst->setPrecision(Precision::U8);
+    inputInfoFirst->getInputData()->setLayout(Layout::NCHW);
+
+    SizeVector input_dims = inputInfoFirst->getInputData()->getTensorDesc().getDims();
+    input_dims[2] = config_.input_h;
+    input_dims[3] = config_.input_w;
+    std::map<std::string, SizeVector> input_shapes;
+    input_shapes[inputInfo.begin()->first] = input_dims;
+    cnnNetwork.reshape(input_shapes);
+
+    OutputsDataMap outputInfo(cnnNetwork.getOutputsInfo());
+    if (outputInfo.size() != 1) {
+        THROW_IE_EXCEPTION << "Face Detection network should have only one output";
+    }
+    DataPtr& _output = outputInfo.begin()->second;
+    output_name_ = outputInfo.begin()->first;
+
+    const SizeVector outputDims = _output->getTensorDesc().getDims();
+    max_detections_count_ = outputDims[2];
+    object_size_ = outputDims[3];
+    if (object_size_ != 7) {
+        THROW_IE_EXCEPTION << "Face Detection network output layer should have 7 as a last dimension";
+    }
+    if (outputDims.size() != 4) {
+        THROW_IE_EXCEPTION << "Face Detection network output dimensions not compatible shoulld be 4, but was " +
+                              std::to_string(outputDims.size());
+    }
+    _output->setPrecision(Precision::FP32);
+    _output->setLayout(TensorDesc::getLayoutByDims(_output->getDims()));
+
+    input_name_ = inputInfo.begin()->first;
+    net_ = config_.ie.LoadNetwork(cnnNetwork, config_.deviceName);
+}
+
+DetectedObjects FaceDetection::fetchResults() {
+    DetectedObjects results;
+    const float *data = request->GetBlob(output_name_)->buffer().as<float *>();
+
     for (int det_id = 0; det_id < max_detections_count_; ++det_id) {
         const int start_pos = det_id * object_size_;
 
@@ -87,7 +148,8 @@ DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const 
                                                        config_.increase_scale_x,
                                                        config_.increase_scale_y),
                                           cv::Size(static_cast<int>(width_), static_cast<int>(height_)));
-        if (object.confidence > 0.25f/*config_.confidence_threshold*/ && object.rect.area() > 0) {
+
+        if (object.confidence > config_.confidence_threshold && object.rect.area() > 0) {
             results.emplace_back(object);
         }
     }

@@ -10,6 +10,8 @@
 
 #include <opencv2/core/core.hpp>
 
+#include "cnn.hpp"
+
 /**
 * @brief Class for detection with action info
 */
@@ -52,7 +54,28 @@ using SSDHeads = std::vector<SSDHead>;
 /**
 * @brief Config for the Action Detection model
 */
-struct ActionDetectorConfig {
+struct ActionDetectorConfig : public CnnConfig {
+    explicit ActionDetectorConfig(const std::string& path_to_model)
+        : CnnConfig(path_to_model) {}
+
+    /** @brief Name of output blob with location info */
+    std::string old_loc_blob_name{"mbox_loc1/out/conv/flat"};
+    /** @brief Name of output blob with detection confidence info */
+    std::string old_det_conf_blob_name{"mbox_main_conf/out/conv/flat/softmax/flat"};
+    /** @brief Prefix of name of output blob with action confidence info */
+    std::string old_action_conf_blob_name_prefix{"out/anchor"};
+    /** @brief Name of output blob with priorbox info */
+    std::string old_priorbox_blob_name{"mbox/priorbox"};
+
+    /** @brief Name of output blob with location info */
+    std::string new_loc_blob_name{"ActionNet/out_detection_loc"};
+    /** @brief Name of output blob with detection confidence info */
+    std::string new_det_conf_blob_name{"ActionNet/out_detection_conf"};
+    /** @brief Prefix of name of output blob with action confidence info */
+    std::string new_action_conf_blob_name_prefix{"ActionNet/action_heads/out_head_"};
+    /** @brief Suffix of name of output blob with action confidence info */
+    std::string new_action_conf_blob_name_suffix{"_anchor_"};
+
     /** @brief Scale paramter for Soft-NMS algorithm */
     float nms_sigma = 0.6f;
     /** @brief Threshold for detected objects */
@@ -85,23 +108,25 @@ struct ActionDetectorConfig {
 };
 
 
-class ActionDetection {
+class ActionDetection : public AsyncDetection<DetectedAction>, public BaseCnnDetection {
 public:
-    explicit ActionDetection(const ActionDetectorConfig& config) : config_(config) {}
-    
-    DetectedActions fetchResults(const cv::Mat& in_ssd_local,
-                                 const cv::Mat& in_ssd_conf,
-                                 const cv::Mat& in_ssd_priorbox,
-                                 const cv::Mat& in_ssd_anchor1,
-                                 const cv::Mat& in_ssd_anchor2,
-                                 const cv::Mat& in_ssd_anchor3,
-                                 const cv::Mat& in_ssd_anchor4,
-                                 const cv::Mat& frame);
+    explicit ActionDetection(const ActionDetectorConfig& config);
+
+    void submitRequest() override;
+    void enqueue(const cv::Mat &frame) override;
+    void wait() override { BaseCnnDetection::wait(); }
+    void printPerformanceCounts(const std::string &fullDeviceName) override {
+        BaseCnnDetection::printPerformanceCounts(fullDeviceName);
+    }
+    DetectedActions fetchResults() override;
 
 private:
     ActionDetectorConfig config_;
+    InferenceEngine::ExecutableNetwork net_;
     std::string input_name_;
+    InferenceEngine::BlobMap outputs_;
 
+    int enqueued_frames_ = 0;
     float width_ = 0;
     float height_ = 0;
     bool new_network_ = false;

@@ -57,7 +57,7 @@ RegistrationStatus EmbeddingsGallery::RegisterIdentity(const std::string& identi
                                                        cv::Mat& embedding) {
     cv::Mat target = image;
     if (crop_gallery) {
-      /* detector.enqueue(image);
+      detector.enqueue(image);
       detector.submitRequest();
       detector.wait();
       detection::DetectedObjects faces = detector.fetchResults();
@@ -65,7 +65,7 @@ RegistrationStatus EmbeddingsGallery::RegisterIdentity(const std::string& identi
         return RegistrationStatus::FAILURE_NOT_DETECTED;
       }
       cv::Mat face_roi = image(faces[0].rect);
-      target = face_roi;*/
+      target = face_roi;
     }
     if ((target.rows < min_size_fr) && (target.cols < min_size_fr)) {
       return RegistrationStatus::FAILURE_LOW_QUALITY;

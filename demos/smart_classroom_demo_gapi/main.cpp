@@ -29,6 +29,15 @@
 #include "logger.hpp"
 #include "smart_classroom_demo.hpp"
 
+#include <opencv2/gapi.hpp>
+#include <opencv2/gapi/core.hpp>
+#include <opencv2/gapi/imgproc.hpp>
+#include <opencv2/gapi/fluid/core.hpp>
+#include <opencv2/gapi/infer.hpp>
+#include <opencv2/gapi/infer/ie.hpp>
+#include <opencv2/gapi/cpu/gcpukernel.hpp>
+#include <opencv2/gapi/streaming/cap.hpp>
+
 using namespace InferenceEngine;
 
 namespace {
@@ -547,6 +556,29 @@ bool ParseAndCheckCommandLine(int argc, char *argv[]) {
 }
 
 }  // namespace
+std::unique_ptr<AsyncDetection<detection::DetectedObject>> face_detector;
+namespace custom {
+    std::string getBinPath(const std::string & pathXML) {
+        std::string pathBIN(pathXML);
+        return pathBIN.replace(pathBIN.size() - 3, 3, "bin");
+    }
+    /**Nets**/
+    G_API_NET(Faces, <cv::GMat(cv::GMat)>, "face-detector");
+    G_API_OP(PostProc, <cv::GArray<detection::DetectedObject>(cv::GMat, cv::GMat)>, "custom.fd_postproc") {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc &, const cv::GMatDesc &) {
+            return cv::empty_array_desc();
+        }
+    };
+    /**PostProcKernels**/
+    GAPI_OCV_KERNEL(OCVPostProc, PostProc) {
+        static void run(const cv::Mat &in_ssd_result,
+            const cv::Mat &in_frame,
+            std::vector<detection::DetectedObject> &out_faces) {
+
+            out_faces = face_detector->fetchResults(in_ssd_result, in_frame);
+        }
+    };
+}
 
 int main(int argc, char* argv[]) {
     try {
@@ -649,7 +681,7 @@ int main(int argc, char* argv[]) {
             action_detector.reset(new NullDetection<DetectedAction>);
         }
 
-        std::unique_ptr<AsyncDetection<detection::DetectedObject>> face_detector;
+        // std::unique_ptr<AsyncDetection<detection::DetectedObject>> face_detector;
         if (!fd_model_path.empty()) {
             // Load face detector
             detection::DetectorConfig face_config(fd_model_path);
@@ -801,7 +833,32 @@ int main(int argc, char* argv[]) {
         cv::Size graphSize{static_cast<int>(frame.cols / 4), 60};
         Presenter presenter(FLAGS_u, frame.rows - graphSize.height - 10, graphSize);
 
-        while (!is_last_frame) {
+        /**=================InvasionStart=================*/
+        cv::GComputation pp([]() {
+            cv::GMat in;
+            cv::GMat frame = cv::gapi::copy(in);
+            cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
+
+            cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in);
+            return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces));
+        });
+
+        auto det_net = cv::gapi::ie::Params<custom::Faces>{
+            fd_model_path,
+            custom::getBinPath(fd_model_path),
+            FLAGS_d_fd,
+        };
+
+        auto kernels = cv::gapi::kernels <custom::OCVPostProc>();
+        auto networks = cv::gapi::networks(det_net);
+
+        auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
+
+        auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);
+        cc.setSource(cv::gin(in_src));
+        cc.start();
+        /**=================InvasionEnd=================*/
+        while (cc.running() && !is_last_frame) {
             logger.CreateNextFrameRecord(cap.GetVideoPath(), work_num_frames, prev_frame.cols, prev_frame.rows);
             auto started = std::chrono::high_resolution_clock::now();
 
@@ -904,16 +961,26 @@ int main(int argc, char* argv[]) {
                     }
                 }
             } else {
-                face_detector->wait();
-                detection::DetectedObjects faces = face_detector->fetchResults();
+                // face_detector->wait(); // <--- if (!request || !isAsync) return; 
+                // detection::DetectedObjects faces = face_detector->fetchResults();
+                /**=================InvasionStart=================*/
+                cv::Mat frame;
+                detection::DetectedObjects faces;
+                auto out_vector = cv::gout(frame, faces);
+                if (!cc.try_pull(std::move(out_vector))) {
+                    if (cv::waitKey(1) >= 0) break;
+                    else continue;
+                }
+                /**=================InvasionEnd=================*/
 
                 action_detector->wait();
+
                 DetectedActions actions = action_detector->fetchResults();
 
                 if (!is_last_frame) {
                     prev_frame_path = cap.GetVideoPath();
-                    face_detector->enqueue(frame);
-                    face_detector->submitRequest();
+                    face_detector->enqueue(frame); // <--- matU8ToBlob
+                    // face_detector->submitRequest();
                     action_detector->enqueue(frame);
                     action_detector->submitRequest();
                 }

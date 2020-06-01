@@ -681,7 +681,7 @@ int main(int argc, char* argv[]) {
             action_detector.reset(new NullDetection<DetectedAction>);
         }
 
-        // std::unique_ptr<AsyncDetection<detection::DetectedObject>> face_detector;
+        // std::unique_ptr<AsyncDetection<detection::DetectedObject>> face_detector; // global now
         if (!fd_model_path.empty()) {
             // Load face detector
             detection::DetectorConfig face_config(fd_model_path);

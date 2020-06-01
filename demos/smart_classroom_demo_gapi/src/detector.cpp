@@ -161,10 +161,10 @@ DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const 
     const float* data = reinterpret_cast<float*>(in_ssd_result.data);
     DetectedObjects results;
 
-    width_ = static_cast<float>(frame.cols);
-    height_ = static_cast<float>(frame.rows);
-    max_detections_count_ = in_ssd_result.size[2];
-    object_size_ = in_ssd_result.size[3];
+    // width_ = static_cast<float>(frame.cols);
+    // height_ = static_cast<float>(frame.rows);
+    // max_detections_count_ = in_ssd_result.size[2];
+    // object_size_ = in_ssd_result.size[3]; 
     for (int det_id = 0; det_id < max_detections_count_; ++det_id) {
         const int start_pos = det_id * object_size_;
 
@@ -186,16 +186,16 @@ DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const 
         DetectedObject object;
         object.confidence = score;
         object.rect = cv::Rect(cv::Point(static_cast<int>(round(static_cast<double>(x0))),
-            static_cast<int>(round(static_cast<double>(y0)))),
-            cv::Point(static_cast<int>(round(static_cast<double>(x1))),
-                static_cast<int>(round(static_cast<double>(y1)))));
+                                         static_cast<int>(round(static_cast<double>(y0)))),
+                               cv::Point(static_cast<int>(round(static_cast<double>(x1))),
+                                         static_cast<int>(round(static_cast<double>(y1)))));
 
 
         object.rect = TruncateToValidRect(IncreaseRect(object.rect,
             config_.increase_scale_x,
             config_.increase_scale_y),
             cv::Size(static_cast<int>(width_), static_cast<int>(height_)));
-        if (object.confidence > 0.25f/*config_.confidence_threshold*/ && object.rect.area() > 0) {
+        if (object.confidence > config_.confidence_threshold && object.rect.area() > 0) {
             results.emplace_back(object);
         }
     }

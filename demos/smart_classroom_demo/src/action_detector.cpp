@@ -244,7 +244,7 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
         while (p >= head_ranges_[head_id + 1]) {
             ++head_id;
         }
-std::cout << "h_id =" << head_id << std::endl;
+
         const int head_p = p - head_ranges_[head_id];
 
         /** Estimate the action anchor ID **/

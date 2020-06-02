@@ -578,6 +578,19 @@ namespace custom {
             out_faces = face_detector->fetchResults(in_ssd_result, in_frame);
         }
     };
+
+    G_TYPED_KERNEL(ToRGB, <cv::GMat(cv::GMat)>, "custom.to_rgb") {
+        static cv::GMatDesc outMeta(const cv::GMatDesc &in) {
+            return in;
+        }
+    };
+    
+    GAPI_OCV_KERNEL(OCVToRGB, ToRGB) {
+        static void run(const cv::Mat &frame,
+                        cv::Mat &out_frame) {           
+            cv::cvtColor(frame, out_frame, cv::COLOR_BGR2RGB);
+        }
+    };
 }
 
 int main(int argc, char* argv[]) {
@@ -777,7 +790,7 @@ int main(int argc, char* argv[]) {
         Tracker tracker_action(tracker_action_params);
 
         cv::Mat frame, prev_frame;
-
+        
         float work_time_ms = 0.f;
         float wait_time_ms = 0.f;
         size_t work_num_frames = 0;
@@ -836,10 +849,12 @@ int main(int argc, char* argv[]) {
         /**=================InvasionStart=================*/
         cv::GComputation pp([]() {
             cv::GMat in;
-            cv::GMat frame = cv::gapi::copy(in);
-            cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
 
+            cv::GMat rgb_mat = custom::ToRGB::on(in);
+            cv::GMat detections = cv::gapi::infer<custom::Faces>(rgb_mat);
             cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in);
+
+            cv::GMat frame = cv::gapi::copy(in);
             return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces));
         });
 
@@ -849,13 +864,13 @@ int main(int argc, char* argv[]) {
             FLAGS_d_fd,
         };
 
-        auto kernels = cv::gapi::kernels <custom::OCVPostProc>();
+        auto kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVToRGB>();
         auto networks = cv::gapi::networks(det_net);
 
         auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
 
-        // auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);
-        cc.setSource(cv::gin(prev_frame));
+        auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);        
+        cc.setSource(cv::gin(in_src));
         cc.start();
         /**=================InvasionEnd=================*/
         while (cc.running() && !is_last_frame) {
@@ -965,7 +980,8 @@ int main(int argc, char* argv[]) {
                 // detection::DetectedObjects faces = face_detector->fetchResults();
                                
                 /**=================InvasionStart=================*/
-                cv::Mat frame;
+                // cv::Mat frame;
+                                             
                 detection::DetectedObjects faces;
                 auto out_vector = cv::gout(frame, faces);
                 if (!cc.try_pull(std::move(out_vector))) {
@@ -973,7 +989,6 @@ int main(int argc, char* argv[]) {
                     else continue;
                 }
                 /**=================InvasionEnd=================*/
-
                 action_detector->wait();
 
                 DetectedActions actions = action_detector->fetchResults();

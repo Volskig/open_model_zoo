@@ -854,8 +854,8 @@ int main(int argc, char* argv[]) {
 
         auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
 
-        auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);
-        cc.setSource(cv::gin(in_src));
+        // auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);
+        cc.setSource(cv::gin(prev_frame));
         cc.start();
         /**=================InvasionEnd=================*/
         while (cc.running() && !is_last_frame) {
@@ -963,6 +963,7 @@ int main(int argc, char* argv[]) {
             } else {
                 // face_detector->wait(); // <--- if (!request || !isAsync) return; 
                 // detection::DetectedObjects faces = face_detector->fetchResults();
+                               
                 /**=================InvasionStart=================*/
                 cv::Mat frame;
                 detection::DetectedObjects faces;
@@ -980,7 +981,7 @@ int main(int argc, char* argv[]) {
                 if (!is_last_frame) {
                     prev_frame_path = cap.GetVideoPath();
                     face_detector->enqueue(frame); // <--- matU8ToBlob
-                    // face_detector->submitRequest();
+                    face_detector->submitRequest();
                     action_detector->enqueue(frame);
                     action_detector->submitRequest();
                 }
@@ -1014,17 +1015,17 @@ int main(int argc, char* argv[]) {
                 for (size_t j = 0; j < tracked_faces.size(); j++) {
                     const auto& face = tracked_faces[j];
                     std::string face_label = face_recognizer->GetLabelByID(face.label);
-
+                
                     std::string label_to_draw;
                     if (face.label != EmbeddingsGallery::unknown_id)
                         label_to_draw += face_label;
-
+                
                     int person_ind = GetIndexOfTheNearestPerson(face, tracked_actions);
                     int action_ind = default_action_index;
                     if (person_ind >= 0) {
                         action_ind = tracked_actions[person_ind].label;
                     }
-
+                
                     if (actions_type == STUDENT) {
                         if (action_ind != default_action_index) {
                             label_to_draw += "[" + GetActionTextLabel(action_ind, actions_map) + "]";
@@ -1033,7 +1034,7 @@ int main(int argc, char* argv[]) {
                         sc_visualizer.DrawObject(face.rect, label_to_draw, red_color, white_color, true);
                         logger.AddFaceToFrame(face.rect, face_label, "");
                     }
-
+                
                     if ((actions_type == TEACHER) && (person_ind >= 0)) {
                         if (face_label == teacher_id) {
                             teacher_track_id = tracked_actions[person_ind].object_id;
@@ -1042,6 +1043,11 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
+
+                // Verification for "clear" face-detection outputs
+                // for (int i = 0; i < faces.size(); ++i) {
+                //     sc_visualizer.DrawObject(faces[i].rect, "", red_color, white_color, true);
+                // }
 
                 if (actions_type == STUDENT) {
                     for (const auto& action : tracked_actions) {

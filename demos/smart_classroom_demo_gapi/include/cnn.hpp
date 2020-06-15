@@ -117,8 +117,6 @@ template <typename T>
 class AsyncDetection : public AsyncAlgorithm {
 public:
     virtual std::vector<T> fetchResults() = 0;
-    // TODO: Remove or change this when fix face detection
-    virtual std::vector<T> fetchResults(const cv::Mat&, const cv::Mat&) = 0;
 };
 
 template <typename T>
@@ -129,8 +127,6 @@ public:
     void wait() override {}
     void printPerformanceCounts(const std::string &) override {}
     std::vector<T> fetchResults() override { return {}; }
-    // TODO: Remove or change this when fix face detection
-    std::vector<T> fetchResults(const cv::Mat&, const cv::Mat&) override { return {}; }
 };
 
 class BaseCnnDetection : public AsyncAlgorithm {

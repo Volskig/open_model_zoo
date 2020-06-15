@@ -555,43 +555,47 @@ bool ParseAndCheckCommandLine(int argc, char *argv[]) {
     return true;
 }
 
-}  // namespace
-std::unique_ptr<AsyncDetection<detection::DetectedObject>> face_detector;
-namespace custom {
+} // namespace
+
+namespace config {
+    detection::DetectorConfig face_config;
+}
+namespace util {
     std::string getBinPath(const std::string & pathXML) {
         std::string pathBIN(pathXML);
         return pathBIN.replace(pathBIN.size() - 3, 3, "bin");
     }
-    /**Nets**/
+} // namespace util
+
+namespace custom {
+    /**Nets*/
     G_API_NET(Faces, <cv::GMat(cv::GMat)>, "face-detector");
-    G_API_OP(PostProc, <cv::GArray<detection::DetectedObject>(cv::GMat, cv::GMat)>, "custom.fd_postproc") {
-        static cv::GArrayDesc outMeta(const cv::GMatDesc &, const cv::GMatDesc &) {
+    G_API_OP(PostProc,
+             <cv::GArray<detection::DetectedObject>(cv::GMat,
+                                                    cv::GMat,
+                                                    detection::DetectorConfig)>,
+             "custom.fd_postproc") {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc &,
+                                      const cv::GMatDesc &,
+                                      const detection::DetectorConfig &) {
             return cv::empty_array_desc();
         }
     };
-    /**PostProcKernels**/
+    /**PostProcKernels*/
     GAPI_OCV_KERNEL(OCVPostProc, PostProc) {
         static void run(const cv::Mat &in_ssd_result,
-            const cv::Mat &in_frame,
-            std::vector<detection::DetectedObject> &out_faces) {
-
-            out_faces = face_detector->fetchResults(in_ssd_result, in_frame);
+                        const cv::Mat &in_frame,
+                        const detection::DetectorConfig & face_config,
+                        std::vector<detection::DetectedObject> &out_faces) {
+            std::unique_ptr<detection::FaceDetection> face_detector(new detection::FaceDetection(face_config));
+            //TODO: Remove this NullDetection (cnn.h) class functional when reid is ready:
+            out_faces = {};
+            if (face_config.model_exist) {                
+                out_faces = face_detector->fetchResults(in_ssd_result, in_frame);
+            }
         }
     };
-
-    G_TYPED_KERNEL(ToRGB, <cv::GMat(cv::GMat)>, "custom.to_rgb") {
-        static cv::GMatDesc outMeta(const cv::GMatDesc &in) {
-            return in;
-        }
-    };
-    
-    GAPI_OCV_KERNEL(OCVToRGB, ToRGB) {
-        static void run(const cv::Mat &frame,
-                        cv::Mat &out_frame) {           
-            cv::cvtColor(frame, out_frame, cv::COLOR_BGR2RGB);
-        }
-    };
-}
+} // namespace custom
 
 int main(int argc, char* argv[]) {
     try {
@@ -694,21 +698,16 @@ int main(int argc, char* argv[]) {
             action_detector.reset(new NullDetection<DetectedAction>);
         }
 
-        // std::unique_ptr<AsyncDetection<detection::DetectedObject>> face_detector; // global now
         if (!fd_model_path.empty()) {
             // Load face detector
-            detection::DetectorConfig face_config(fd_model_path);
-            face_config.deviceName = FLAGS_d_fd;
-            face_config.ie = ie;
-            face_config.is_async = true;
-            face_config.confidence_threshold = static_cast<float>(FLAGS_t_fd);
-            face_config.input_h = FLAGS_inh_fd;
-            face_config.input_w = FLAGS_inw_fd;
-            face_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
-            face_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
-            face_detector.reset(new detection::FaceDetection(face_config));
+            config::face_config.model_exist = true;
+            config::face_config.confidence_threshold = static_cast<float>(FLAGS_t_fd);
+            config::face_config.input_h = FLAGS_inh_fd;
+            config::face_config.input_w = FLAGS_inw_fd;
+            config::face_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
+            config::face_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
         } else {
-            face_detector.reset(new NullDetection<detection::DetectedObject>);
+            config::face_config.model_exist = false;
         }
 
         std::unique_ptr<FaceRecognizer> face_recognizer;
@@ -716,13 +715,14 @@ int main(int argc, char* argv[]) {
         if (!fd_model_path.empty() && !fr_model_path.empty() && !lm_model_path.empty()) {
             // Create face recognizer
 
-            detection::DetectorConfig face_registration_det_config(fd_model_path);
-            face_registration_det_config.deviceName = FLAGS_d_fd;
-            face_registration_det_config.ie = ie;
-            face_registration_det_config.is_async = false;
-            face_registration_det_config.confidence_threshold = static_cast<float>(FLAGS_t_reg_fd);
-            face_registration_det_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
-            face_registration_det_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
+            // TODO: needs implement reidentification with G-API
+            detection::DetectorConfig face_registration_det_config/*(fd_model_path)*/;
+            // face_registration_det_config.deviceName = FLAGS_d_fd;
+            // face_registration_det_config.ie = ie;
+            // face_registration_det_config.is_async = false;
+            // face_registration_det_config.confidence_threshold = static_cast<float>(FLAGS_t_reg_fd);
+            // face_registration_det_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
+            // face_registration_det_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
 
             CnnConfig reid_config(fr_model_path);
             reid_config.deviceName = FLAGS_d_reid;
@@ -740,10 +740,14 @@ int main(int argc, char* argv[]) {
                 landmarks_config.max_batch_size = 1;
             landmarks_config.ie = ie;
 
-            face_recognizer.reset(new FaceRecognizerDefault(
-                landmarks_config, reid_config,
-                face_registration_det_config,
-                FLAGS_fg, FLAGS_t_reid, FLAGS_min_size_fr, FLAGS_crop_gallery, FLAGS_greedy_reid_matching));
+            /** TODO: DetectorConfig changed
+            *   needs implement reidentification with G-API
+            */
+            // face_recognizer.reset(new FaceRecognizerDefault(
+            //     landmarks_config, reid_config,
+            //     face_registration_det_config,
+            //     FLAGS_fg, FLAGS_t_reid, FLAGS_min_size_fr, FLAGS_crop_gallery, FLAGS_greedy_reid_matching));
+            face_recognizer.reset(new FaceRecognizerNull);
 
             if (actions_type == TEACHER && !face_recognizer->LabelExists(teacher_id)) {
                 slog::err << "Teacher id does not exist in the gallery!" << slog::endl;
@@ -816,8 +820,6 @@ int main(int argc, char* argv[]) {
         if (actions_type != TOP_K) {
             action_detector->enqueue(frame);
             action_detector->submitRequest();
-            face_detector->enqueue(frame);
-            face_detector->submitRequest();
         }
 
         prev_frame = frame.clone();
@@ -847,24 +849,22 @@ int main(int argc, char* argv[]) {
         Presenter presenter(FLAGS_u, frame.rows - graphSize.height - 10, graphSize);
 
         /**=================InvasionStart=================*/
-        cv::GComputation pp([]() {
+        cv::GComputation pp([&]() {
             cv::GMat in;
 
-            cv::GMat rgb_mat = custom::ToRGB::on(in);
-            cv::GMat detections = cv::gapi::infer<custom::Faces>(rgb_mat);
-            cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in);
+            cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
+            cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
 
-            cv::GMat frame = cv::gapi::copy(in);
-            return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces));
+            return cv::GComputation(cv::GIn(in), cv::GOut(faces));
         });
 
         auto det_net = cv::gapi::ie::Params<custom::Faces>{
             fd_model_path,
-            custom::getBinPath(fd_model_path),
+            util::getBinPath(fd_model_path),
             FLAGS_d_fd,
         };
 
-        auto kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVToRGB>();
+        auto kernels = cv::gapi::kernels <custom::OCVPostProc>();
         auto networks = cv::gapi::networks(det_net);
 
         auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
@@ -976,14 +976,9 @@ int main(int argc, char* argv[]) {
                     }
                 }
             } else {
-                // face_detector->wait(); // <--- if (!request || !isAsync) return; 
-                // detection::DetectedObjects faces = face_detector->fetchResults();
-                               
-                /**=================InvasionStart=================*/
-                // cv::Mat frame;
-                                             
+                /**=================InvasionStart=================*/                             
                 detection::DetectedObjects faces;
-                auto out_vector = cv::gout(frame, faces);
+                auto out_vector = cv::gout(faces);
                 if (!cc.try_pull(std::move(out_vector))) {
                     if (cv::waitKey(1) >= 0) break;
                     else continue;
@@ -995,8 +990,6 @@ int main(int argc, char* argv[]) {
 
                 if (!is_last_frame) {
                     prev_frame_path = cap.GetVideoPath();
-                    face_detector->enqueue(frame); // <--- matU8ToBlob
-                    face_detector->submitRequest();
                     action_detector->enqueue(frame);
                     action_detector->submitRequest();
                 }
@@ -1059,11 +1052,6 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                // Verification for "clear" face-detection outputs
-                // for (int i = 0; i < faces.size(); ++i) {
-                //     sc_visualizer.DrawObject(faces[i].rect, "", red_color, white_color, true);
-                // }
-
                 if (actions_type == STUDENT) {
                     for (const auto& action : tracked_actions) {
                         const auto& action_label = GetActionTextLabel(action.label, actions_map);
@@ -1111,10 +1099,9 @@ int main(int argc, char* argv[]) {
         slog::info << "Frames processed: " << total_num_frames << slog::endl;
         if (FLAGS_pc) {
             std::map<std::string, std::string>  mapDevices = getMapFullDevicesNames(ie, devices);
-            face_detector->wait();
             action_detector->wait();
             action_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_act));
-            face_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_fd));
+            // face_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_fd));
             face_recognizer->PrintPerformanceCounts(
                 getFullDeviceName(mapDevices, FLAGS_d_lm),
                 getFullDeviceName(mapDevices, FLAGS_d_reid));

@@ -57,10 +57,10 @@ RegistrationStatus EmbeddingsGallery::RegisterIdentity(const std::string& identi
                                                        cv::Mat& embedding) {
     cv::Mat target = image;
     if (crop_gallery) {
-      detector.enqueue(image);
-      detector.submitRequest();
-      detector.wait();
-      detection::DetectedObjects faces = detector.fetchResults();
+      // detector.enqueue(image);
+      // detector.submitRequest();
+      // detector.wait();
+      detection::DetectedObjects faces = {}/*detector.fetchResults()*/;
       if (faces.size() == 0) {
         return RegistrationStatus::FAILURE_NOT_DETECTED;
       }

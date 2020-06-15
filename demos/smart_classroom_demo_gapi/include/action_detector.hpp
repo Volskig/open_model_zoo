@@ -119,7 +119,6 @@ public:
         BaseCnnDetection::printPerformanceCounts(fullDeviceName);
     }
     DetectedActions fetchResults() override;
-    DetectedActions fetchResults(const cv::Mat&, const cv::Mat&) override { return {}; }
 
 private:
     ActionDetectorConfig config_;

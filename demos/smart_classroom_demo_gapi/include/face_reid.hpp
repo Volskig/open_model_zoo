@@ -49,7 +49,7 @@ private:
                                         const cv::Mat& image,
                                         int min_size_fr,
                                         bool crop_gallery,
-                                        detection::FaceDetection& detector,
+                                        // detection::FaceDetection& detector,
                                         const VectorCNN& landmarks_det,
                                         const VectorCNN& image_reid,
                                         cv::Mat & embedding);

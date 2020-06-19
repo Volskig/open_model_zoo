@@ -49,35 +49,14 @@ cv::Rect IncreaseRect(const cv::Rect& r, float coeff_x,
 }
 }  // namespace
 
-// void FaceDetection::submitRequest() {
-//     if (!enqueued_frames_) return;
-//     enqueued_frames_ = 0;
-//     BaseCnnDetection::submitRequest();
-// }
-//
-// void FaceDetection::enqueue(const cv::Mat &frame) {
-//     if (!request) {
-//         request = net_.CreateInferRequestPtr();
-//     }
-//
-//     width_ = static_cast<float>(frame.cols);
-//     height_ = static_cast<float>(frame.rows);
-//
-//     Blob::Ptr inputBlob = request->GetBlob(input_name_);
-// 
-//     matU8ToBlob<uint8_t>(frame, inputBlob);
-// 
-//     enqueued_frames_ = 1;
-// }
-
 FaceDetection::FaceDetection(const DetectorConfig& config) : config_(config) {
-    //Config net: U8 NCHW 1 3 600 600 reshape
-    // SizeVector input_dims = inputInfoFirst->getInputData()->getTensorDesc().getDims();
-    // input_dims[2] = config_.input_h;
-    // input_dims[3] = config_.input_w;
-    // std::map<std::string, SizeVector> input_shapes;
-    // input_shapes[inputInfo.begin()->first] = input_dims;
-    // cnnNetwork.reshape(input_shapes);
+    // Config net: U8 NCHW 1 3 600 600 reshape
+    /*SizeVector input_dims = inputInfoFirst->getInputData()->getTensorDesc().getDims();
+    input_dims[2] = config_.input_h;
+    input_dims[3] = config_.input_w;
+    std::map<std::string, SizeVector> input_shapes;
+    input_shapes[inputInfo.begin()->first] = input_dims;
+    cnnNetwork.reshape(input_shapes);*/
 }
 
 DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const cv::Mat& frame) {
@@ -119,7 +98,7 @@ DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const 
                                           config_.increase_scale_y),
                                           cv::Size(static_cast<int>(width_),
                                           static_cast<int>(height_)));
-        //TODO: reshape CNN input to remove this 0.25f
+        // TODO: reshape CNN input to remove this 0.25f
         if (object.confidence > 0.25f/*config_.confidence_threshold*/ && object.rect.area() > 0) {
             results.emplace_back(object);
         }

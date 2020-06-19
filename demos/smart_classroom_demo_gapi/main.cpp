@@ -445,8 +445,8 @@ public:
     virtual std::string GetLabelByID(int id) const = 0;
     virtual std::vector<std::string> GetIDToLabelMap() const = 0;
 
-    virtual std::vector<int> Recognize(const cv::Mat& frame, const detection::DetectedObjects& faces) = 0;
-
+    virtual std::vector<int> Recognize(const std::vector<cv::Mat> &,
+                                       const detection::DetectedObjects &) = 0;
     virtual void PrintPerformanceCounts(
         const std::string &landmarks_device, const std::string &reid_device) = 0;
 };
@@ -461,7 +461,8 @@ public:
 
     std::vector<std::string> GetIDToLabelMap() const override { return {}; }
 
-    std::vector<int> Recognize(const cv::Mat&, const detection::DetectedObjects& faces) override {
+    std::vector<int> Recognize(const std::vector<cv::Mat>& embeddings,
+                               const detection::DetectedObjects& faces) override {
         return std::vector<int>(faces.size(), EmbeddingsGallery::unknown_id);
     }
 
@@ -506,23 +507,12 @@ public:
         return face_gallery.GetIDToLabelMap();
     }
 
-    std::vector<int> Recognize(const cv::Mat& frame, const detection::DetectedObjects& faces) override {
-        std::vector<cv::Mat> face_rois;
-
-        for (const auto& face : faces) {
-            face_rois.push_back(frame(face.rect));
-        }
-
-        std::vector<cv::Mat> landmarks, embeddings;
-
-        landmarks_detector.Compute(face_rois, &landmarks, cv::Size(2, 5));
-        AlignFaces(&face_rois, &landmarks);
-        face_reid.Compute(face_rois, &embeddings);
+    std::vector<int> Recognize(const std::vector<cv::Mat>& embeddings,
+                               const detection::DetectedObjects& faces) override {
         return face_gallery.GetIDsByEmbeddings(embeddings);
     }
 
-    void PrintPerformanceCounts(
-            const std::string &landmarks_device, const std::string &reid_device) {
+    void PrintPerformanceCounts(const std::string &landmarks_device, const std::string &reid_device) {
         landmarks_detector.PrintPerformanceCounts(landmarks_device);
         face_reid.PrintPerformanceCounts(reid_device);
     }
@@ -559,7 +549,7 @@ bool ParseAndCheckCommandLine(int argc, char *argv[]) {
 
 namespace config {
     detection::DetectorConfig face_config;
-}
+} // namespace config
 namespace util {
     std::string getBinPath(const std::string & pathXML) {
         std::string pathBIN(pathXML);
@@ -569,7 +559,10 @@ namespace util {
 
 namespace custom {
     /**Nets*/
-    G_API_NET(Faces, <cv::GMat(cv::GMat)>, "face-detector");
+    G_API_NET(Faces,         <cv::GMat(cv::GMat)>, "face-detector");
+    G_API_NET(LandmDetector, <cv::GMat(cv::GMat)>, "landm_detector");
+    G_API_NET(FaceReident,   <cv::GMat(cv::GMat)>,  "face_reidentificator");
+
     G_API_OP(PostProc,
              <cv::GArray<detection::DetectedObject>(cv::GMat,
                                                     cv::GMat,
@@ -581,17 +574,36 @@ namespace custom {
             return cv::empty_array_desc();
         }
     };
+
+    G_API_OP(GetRect,
+             <cv::GArray<cv::Rect>(cv::GArray<detection::DetectedObject>)>,
+             "custom.get_rect_from_detect") {
+        static cv::GArrayDesc outMeta(const cv::GArrayDesc &) {
+            return cv::empty_array_desc();
+        }
+    };
+
     /**PostProcKernels*/
     GAPI_OCV_KERNEL(OCVPostProc, PostProc) {
         static void run(const cv::Mat &in_ssd_result,
                         const cv::Mat &in_frame,
                         const detection::DetectorConfig & face_config,
                         std::vector<detection::DetectedObject> &out_faces) {
-            std::unique_ptr<detection::FaceDetection> face_detector(new detection::FaceDetection(face_config));
+            std::unique_ptr<detection::FaceDetection> face_detector(new detection::FaceDetection(face_config));            
             //TODO: Remove this NullDetection (cnn.h) class functional when reid is ready:
             out_faces = {};
             if (face_config.model_exist) {                
                 out_faces = face_detector->fetchResults(in_ssd_result, in_frame);
+            }
+
+        }
+    };
+
+    GAPI_OCV_KERNEL(OCVGetRect, GetRect) {
+        static void run(const detection::DetectedObjects &detections,
+                        std::vector<cv::Rect> &out_rects) {
+            for (const auto& it : detections) {
+                out_rects.emplace_back(it.rect);
             }
         }
     };
@@ -714,15 +726,10 @@ int main(int argc, char* argv[]) {
 
         if (!fd_model_path.empty() && !fr_model_path.empty() && !lm_model_path.empty()) {
             // Create face recognizer
-
-            // TODO: needs implement reidentification with G-API
-            detection::DetectorConfig face_registration_det_config/*(fd_model_path)*/;
-            // face_registration_det_config.deviceName = FLAGS_d_fd;
-            // face_registration_det_config.ie = ie;
-            // face_registration_det_config.is_async = false;
-            // face_registration_det_config.confidence_threshold = static_cast<float>(FLAGS_t_reg_fd);
-            // face_registration_det_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
-            // face_registration_det_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
+            detection::DetectorConfig face_registration_det_config;
+            face_registration_det_config.confidence_threshold = static_cast<float>(FLAGS_t_reg_fd);
+            face_registration_det_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
+            face_registration_det_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
 
             CnnConfig reid_config(fr_model_path);
             reid_config.deviceName = FLAGS_d_reid;
@@ -740,14 +747,13 @@ int main(int argc, char* argv[]) {
                 landmarks_config.max_batch_size = 1;
             landmarks_config.ie = ie;
 
-            /** TODO: DetectorConfig changed
-            *   needs implement reidentification with G-API
-            */
-            // face_recognizer.reset(new FaceRecognizerDefault(
-            //     landmarks_config, reid_config,
-            //     face_registration_det_config,
-            //     FLAGS_fg, FLAGS_t_reid, FLAGS_min_size_fr, FLAGS_crop_gallery, FLAGS_greedy_reid_matching));
-            face_recognizer.reset(new FaceRecognizerNull);
+            // TODO: crop_gallary flag needs to face_registration
+            face_recognizer.reset(new FaceRecognizerDefault(
+                landmarks_config, reid_config,
+                face_registration_det_config,
+                FLAGS_fg, FLAGS_t_reid,
+                FLAGS_min_size_fr, FLAGS_crop_gallery,
+                FLAGS_greedy_reid_matching));
 
             if (actions_type == TEACHER && !face_recognizer->LabelExists(teacher_id)) {
                 slog::err << "Teacher id does not exist in the gallery!" << slog::endl;
@@ -855,7 +861,16 @@ int main(int argc, char* argv[]) {
             cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
             cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
 
-            return cv::GComputation(cv::GIn(in), cv::GOut(faces));
+            cv::GArray<cv::Rect> rects = custom::GetRect::on(faces);
+
+            // cv::GArray<cv::GMat> landmarks = cv::gapi::infer<custom::LandmDetector>(rects, in);
+
+            // NOTE: AlignFaces(cv::warpAffine) returns GArray<cv::Mat>
+            // AlignFaces kernel
+            cv::GArray<cv::GMat> embeddings = cv::gapi::infer<custom::FaceReident>(rects, in);
+
+            cv::GMat frame = cv::gapi::copy(in);
+            return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces, embeddings));
         });
 
         auto det_net = cv::gapi::ie::Params<custom::Faces>{
@@ -864,8 +879,20 @@ int main(int argc, char* argv[]) {
             FLAGS_d_fd,
         };
 
-        auto kernels = cv::gapi::kernels <custom::OCVPostProc>();
-        auto networks = cv::gapi::networks(det_net);
+        auto landm_net = cv::gapi::ie::Params<custom::LandmDetector>{
+            lm_model_path,
+            util::getBinPath(lm_model_path),
+            FLAGS_d_lm,
+        };
+
+        auto reident_net = cv::gapi::ie::Params<custom::FaceReident>{
+            fr_model_path,
+            util::getBinPath(fr_model_path),
+            FLAGS_d_reid,
+        };
+
+        auto kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVGetRect>();
+        auto networks = cv::gapi::networks(det_net, /*landm_net,*/ reident_net);
 
         auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
 
@@ -892,8 +919,8 @@ int main(int argc, char* argv[]) {
             sc_visualizer.SetFrame(prev_frame);
 
             if (actions_type == TOP_K) {
-                if ( (is_monitoring_enabled && key == SPACE_KEY) ||
-                     (!is_monitoring_enabled && key != SPACE_KEY) ) {
+                if ((is_monitoring_enabled && key == SPACE_KEY) ||
+                    (!is_monitoring_enabled && key != SPACE_KEY)) {
                     if (key == SPACE_KEY) {
                         action_detector->wait();
                         action_detector->fetchResults();
@@ -976,13 +1003,21 @@ int main(int argc, char* argv[]) {
                     }
                 }
             } else {
-                /**=================InvasionStart=================*/                             
+                /**=================InvasionStart=================*/
                 detection::DetectedObjects faces;
-                auto out_vector = cv::gout(faces);
+                std::vector<cv::Mat> embeddings;
+               
+                auto out_vector = cv::gout(frame, faces, embeddings);
                 if (!cc.try_pull(std::move(out_vector))) {
                     if (cv::waitKey(1) >= 0) break;
                     else continue;
                 }
+
+                // NOTE: Recognize works with shape 256:1 after G-API we get 1:256:1:1
+                for (auto & emb : embeddings) {
+                    emb = emb.reshape(1, { emb.size().width, 1 });
+                }
+
                 /**=================InvasionEnd=================*/
                 action_detector->wait();
 
@@ -994,8 +1029,8 @@ int main(int argc, char* argv[]) {
                     action_detector->submitRequest();
                 }
 
-                auto ids = face_recognizer->Recognize(prev_frame, faces);
-
+                // TODO: remove faces from Recognize
+                auto ids = face_recognizer->Recognize(embeddings, faces);
                 TrackedObjects tracked_face_objects;
 
                 for (size_t i = 0; i < faces.size(); i++) {
@@ -1051,7 +1086,6 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
-
                 if (actions_type == STUDENT) {
                     for (const auto& action : tracked_actions) {
                         const auto& action_label = GetActionTextLabel(action.label, actions_map);
@@ -1106,7 +1140,6 @@ int main(int argc, char* argv[]) {
                 getFullDeviceName(mapDevices, FLAGS_d_lm),
                 getFullDeviceName(mapDevices, FLAGS_d_reid));
         }
-
         if (actions_type == STUDENT) {
             auto face_tracks = tracker_reid.vector_tracks();
 

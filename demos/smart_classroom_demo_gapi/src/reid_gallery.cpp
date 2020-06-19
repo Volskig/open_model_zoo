@@ -51,22 +51,23 @@ const int EmbeddingsGallery::unknown_id = TrackedObject::UNKNOWN_LABEL_IDX;
 RegistrationStatus EmbeddingsGallery::RegisterIdentity(const std::string& identity_label,
                                                        const cv::Mat& image,
                                                        int min_size_fr, bool crop_gallery,
-                                                       detection::FaceDetection& detector,
+                                                       // detection::FaceDetection& detector,
                                                        const VectorCNN& landmarks_det,
                                                        const VectorCNN& image_reid,
                                                        cv::Mat& embedding) {
     cv::Mat target = image;
-    if (crop_gallery) {
-      // detector.enqueue(image);
-      // detector.submitRequest();
-      // detector.wait();
-      detection::DetectedObjects faces = {}/*detector.fetchResults()*/;
+    // TODO: needs implement crop_gallery flag functional (face-detection required)
+    /*if (crop_gallery) {
+      detector.enqueue(image);
+      detector.submitRequest();
+      detector.wait();
+      detection::DetectedObjects faces = detector.fetchResults();
       if (faces.size() == 0) {
         return RegistrationStatus::FAILURE_NOT_DETECTED;
       }
       cv::Mat face_roi = image(faces[0].rect);
       target = face_roi;
-    }
+    }*/
     if ((target.rows < min_size_fr) && (target.cols < min_size_fr)) {
       return RegistrationStatus::FAILURE_LOW_QUALITY;
     }
@@ -91,7 +92,8 @@ EmbeddingsGallery::EmbeddingsGallery(const std::string& ids_list,
         return;
     }
 
-    detection::FaceDetection detector(detector_config);
+    // TODO: needs implement crop_gallery flag functional 
+    // detection::FaceDetection detector(detector_config);
 
     cv::FileStorage fs(ids_list, cv::FileStorage::Mode::READ);
     cv::FileNode fn = fs.root();
@@ -118,7 +120,10 @@ EmbeddingsGallery::EmbeddingsGallery(const std::string& ids_list,
             cv::Mat image = cv::imread(path);
             CV_Assert(!image.empty());
             cv::Mat emb;
-            RegistrationStatus status = RegisterIdentity(label, image, min_size_fr, crop_gallery,  detector, landmarks_det, image_reid, emb);
+            RegistrationStatus status = RegisterIdentity(label, image,
+                                                         min_size_fr, crop_gallery,
+                                                         /*detector,*/ landmarks_det,
+                                                         image_reid, emb);
             if (status == RegistrationStatus::SUCCESS) {
                 embeddings.push_back(emb);
                 idx_to_id.push_back(id);

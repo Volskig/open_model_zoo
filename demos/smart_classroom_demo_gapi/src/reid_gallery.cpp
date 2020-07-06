@@ -22,10 +22,10 @@ namespace {
         return 1.0f - xy / norm;
     }
 
-    bool file_exists(const std::string& name) {
-        std::ifstream f(name.c_str());
-        return f.good();
-    }
+    // bool file_exists(const std::string& name) {
+    //     std::ifstream f(name.c_str());
+    //     return f.good();
+    // }
 
     inline char separator() {
         #ifdef _WIN32
@@ -35,13 +35,13 @@ namespace {
         #endif
     }
 
-    std::string folder_name(const std::string& path) {
-        size_t found_pos;
-        found_pos = path.find_last_of(separator());
-        if (found_pos != std::string::npos)
-            return path.substr(0, found_pos);
-        return std::string(".") + separator();
-    }
+    // std::string folder_name(const std::string& path) {
+    //     size_t found_pos;
+    //     found_pos = path.find_last_of(separator());
+    //     if (found_pos != std::string::npos)
+    //         return path.substr(0, found_pos);
+    //     return std::string(".") + separator();
+    // }
 
 }  // namespace
 
@@ -52,8 +52,6 @@ RegistrationStatus EmbeddingsGallery::RegisterIdentity(const std::string& identi
                                                        const cv::Mat& image,
                                                        int min_size_fr, bool crop_gallery,
                                                        // detection::FaceDetection& detector,
-                                                       const VectorCNN& landmarks_det,
-                                                       const VectorCNN& image_reid,
                                                        cv::Mat& embedding) {
     cv::Mat target = image;
     // TODO: needs implement crop_gallery flag functional (face-detection required)
@@ -68,70 +66,29 @@ RegistrationStatus EmbeddingsGallery::RegisterIdentity(const std::string& identi
       cv::Mat face_roi = image(faces[0].rect);
       target = face_roi;
     }*/
-    if ((target.rows < min_size_fr) && (target.cols < min_size_fr)) {
-      return RegistrationStatus::FAILURE_LOW_QUALITY;
-    }
-    cv::Mat landmarks;
-    landmarks_det.Compute(target, &landmarks, cv::Size(2, 5));
-    std::vector<cv::Mat> images = {target};
-    std::vector<cv::Mat> landmarks_vec = {landmarks};
-    AlignFaces(&images, &landmarks_vec);
-    image_reid.Compute(images[0], &embedding);
+    // if ((target.rows < min_size_fr) && (target.cols < min_size_fr)) {
+    //   return RegistrationStatus::FAILURE_LOW_QUALITY;
+    // }
+    // cv::Mat landmarks;
+    // landmarks_det.Compute(target, &landmarks, cv::Size(2, 5));
+    // std::vector<cv::Mat> images = {target};
+    // std::vector<cv::Mat> landmarks_vec = {landmarks};
+    // AlignFaces(&images, &landmarks_vec);
+    // image_reid.Compute(images[0], &embedding);
     return RegistrationStatus::SUCCESS;
 }
 
 EmbeddingsGallery::EmbeddingsGallery(const std::string& ids_list,
                                      double threshold, int min_size_fr,
                                      bool crop_gallery, const detection::DetectorConfig &detector_config,
-                                     const VectorCNN& landmarks_det,
-                                     const VectorCNN& image_reid,
+                                     const std::vector<GalleryObject> &identities_m,
                                      bool use_greedy_matcher)
     : reid_threshold(threshold),
       use_greedy_matcher(use_greedy_matcher) {
-    if (ids_list.empty()) {
-        return;
-    }
-
     // TODO: needs implement crop_gallery flag functional 
     // detection::FaceDetection detector(detector_config);
 
-    cv::FileStorage fs(ids_list, cv::FileStorage::Mode::READ);
-    cv::FileNode fn = fs.root();
-    int id = 0;
-    for (cv::FileNodeIterator fit = fn.begin(); fit != fn.end(); ++fit) {
-        cv::FileNode item = *fit;
-        std::string label = item.name();
-        std::vector<cv::Mat> embeddings;
-
-        // Please, note that the case when there are more than one image in gallery
-        // for a person might not work properly with the current implementation
-        // of the demo.
-        // Remove this assert by your own risk.
-        CV_Assert(item.size() == 1);
-
-        for (size_t i = 0; i < item.size(); i++) {
-            std::string path;
-            if (file_exists(item[i].string())) {
-                path = item[i].string();
-            } else {
-                path = folder_name(ids_list) + separator() + item[i].string();
-            }
-
-            cv::Mat image = cv::imread(path);
-            CV_Assert(!image.empty());
-            cv::Mat emb;
-            RegistrationStatus status = RegisterIdentity(label, image,
-                                                         min_size_fr, crop_gallery,
-                                                         /*detector,*/ landmarks_det,
-                                                         image_reid, emb);
-            if (status == RegistrationStatus::SUCCESS) {
-                embeddings.push_back(emb);
-                idx_to_id.push_back(id);
-                identities.emplace_back(embeddings, label, id);
-                ++id;
-            }
-        }
-    }
+    identities = identities_m;
 }
 
 std::vector<int> EmbeddingsGallery::GetIDsByEmbeddings(const std::vector<cv::Mat>& embeddings) const {

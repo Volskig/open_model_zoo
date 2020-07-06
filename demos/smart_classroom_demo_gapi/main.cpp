@@ -473,19 +473,18 @@ public:
 class FaceRecognizerDefault : public FaceRecognizer {
 public:
     FaceRecognizerDefault(
-            const CnnConfig& landmarks_detector_config,
-            const CnnConfig& reid_config,
             const detection::DetectorConfig& face_registration_det_config,
             const std::string& face_gallery_path,
             double reid_threshold,
             int min_size_fr,
             bool crop_gallery,
+            const std::vector<GalleryObject>& identities,
             bool greedy_reid_matching
     )
-        : landmarks_detector(landmarks_detector_config),
-          face_reid(reid_config),
+        : /*landmarks_detector(landmarks_detector_config),
+          face_reid(reid_config),*/
           face_gallery(face_gallery_path, reid_threshold, min_size_fr, crop_gallery,
-                       face_registration_det_config, landmarks_detector, face_reid,
+                       face_registration_det_config, identities,
                        greedy_reid_matching)
     {
         if (face_gallery.size() == 0) {
@@ -513,13 +512,13 @@ public:
     }
 
     void PrintPerformanceCounts(const std::string &landmarks_device, const std::string &reid_device) {
-        landmarks_detector.PrintPerformanceCounts(landmarks_device);
-        face_reid.PrintPerformanceCounts(reid_device);
+    //     landmarks_detector.PrintPerformanceCounts(landmarks_device);
+    //     face_reid.PrintPerformanceCounts(reid_device);
     }
 
 private:
-    VectorCNN landmarks_detector;
-    VectorCNN face_reid;
+    // VectorCNN landmarks_detector;
+    // VectorCNN face_reid;
     EmbeddingsGallery face_gallery;
 };
 
@@ -583,6 +582,14 @@ namespace custom {
         }
     };
 
+    G_API_OP(AlignFace,
+             <cv::GMat(cv::GMat, cv::GMat)>,
+             "custom.align_face") {
+        static cv::GMatDesc outMeta(const cv::GMatDesc &, const cv::GMatDesc & in) {
+            return in;
+        }
+    };
+
     /**PostProcKernels*/
     GAPI_OCV_KERNEL(OCVPostProc, PostProc) {
         static void run(const cv::Mat &in_ssd_result,
@@ -607,7 +614,51 @@ namespace custom {
             }
         }
     };
+
+    GAPI_OCV_KERNEL(OCVAlignFace, AlignFace) {
+        static void run(const cv::Mat &landmarks,
+                        const cv::Mat &image,
+                        cv::Mat &out_image) {
+            std::vector<cv::Mat> images = { image };
+            cv::Mat lmrk = landmarks.reshape(1, { 5, 2 });
+            std::vector<cv::Mat> landmarks_vec = { lmrk };
+            AlignFaces(&images, &landmarks_vec);
+            images[0].copyTo(out_image);
+        }
+    };
 } // namespace custom
+
+namespace {
+    // float ComputeReidDistance(const cv::Mat& descr1, const cv::Mat& descr2) {
+    //     float xy = static_cast<float>(descr1.dot(descr2));
+    //     float xx = static_cast<float>(descr1.dot(descr1));
+    //     float yy = static_cast<float>(descr2.dot(descr2));
+    //     float norm = sqrt(xx * yy) + 1e-6f;
+    //     return 1.0f - xy / norm;
+    // }
+
+    bool file_exists(const std::string& name) {
+        std::ifstream f(name.c_str());
+        return f.good();
+    }
+
+    inline char separator() {
+#ifdef _WIN32
+        return '\\';
+#else
+        return '/';
+#endif
+    }
+
+    std::string folder_name(const std::string& path) {
+        size_t found_pos;
+        found_pos = path.find_last_of(separator());
+        if (found_pos != std::string::npos)
+            return path.substr(0, found_pos);
+        return std::string(".") + separator();
+    }
+
+}  // namespace
 
 int main(int argc, char* argv[]) {
     try {
@@ -722,6 +773,126 @@ int main(int argc, char* argv[]) {
             config::face_config.model_exist = false;
         }
 
+        /**=================InvasionGallery=================*/
+        cv::GComputation gallery_pp([&]() {
+            cv::GMat in;
+
+            // cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
+            // cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
+            // cv::GArray<cv::Rect> rects = custom::GetRect::on(faces);
+
+            // cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
+            cv::GMat frame = cv::gapi::copy(in);
+            /*cv::GArray<*/cv::GMat/*>*/ landmarks = cv::gapi::infer<custom::LandmDetector>(/*rects, */in);
+
+            cv::GMat align_face = custom::AlignFace::on(landmarks, in);
+            
+            cv::GMat embeddings = cv::gapi::infer<custom::FaceReident>(align_face);
+            
+            return cv::GComputation(cv::GIn(in), cv::GOut(embeddings, frame));
+        });
+
+        auto det_net = cv::gapi::ie::Params<custom::Faces>{
+            fd_model_path,
+            util::getBinPath(fd_model_path),
+            FLAGS_d_fd,
+        };
+
+        auto landm_net = cv::gapi::ie::Params<custom::LandmDetector>{
+            lm_model_path,
+            util::getBinPath(lm_model_path),
+            FLAGS_d_lm,
+        };
+
+        auto reident_net = cv::gapi::ie::Params<custom::FaceReident>{
+            fr_model_path,
+            util::getBinPath(fr_model_path),
+            FLAGS_d_reid,
+        };
+
+        auto gallery_kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVAlignFace, custom::OCVGetRect>();
+        auto gallery_networks = cv::gapi::networks(det_net, landm_net, reident_net);
+
+        std::string ids_list = FLAGS_fg;
+        std::vector<int> idx_to_id;
+        std::vector<GalleryObject> identities;
+
+        cv::FileStorage fs(ids_list, cv::FileStorage::Mode::READ);
+        cv::FileNode fn = fs.root();
+        int id = 0;
+        for (cv::FileNodeIterator fit = fn.begin(); fit != fn.end(); ++fit) {
+            cv::FileNode item = *fit;
+            std::string label = item.name();
+            std::vector<cv::Mat> embeddings;
+
+            // Please, note that the case when there are more than one image in gallery
+            // for a person might not work properly with the current implementation
+            // of the demo.
+            // Remove this assert by your own risk.
+            CV_Assert(item.size() == 1);
+
+            for (size_t i = 0; i < item.size(); i++) {
+                std::string path;
+                if (file_exists(item[i].string())) {
+                    path = item[i].string();
+                }
+                else {
+                    path = folder_name(ids_list) + separator() + item[i].string();
+                }
+
+                cv::Mat image = cv::imread(path);
+                CV_Assert(!image.empty());
+                cv::Mat emb;
+                cv::Mat lmrk;
+                cv::Mat frame;
+                gallery_pp.apply(cv::gin(image), cv::gout(emb, frame/*, lmrk*/),
+                                 cv::compile_args(gallery_kernels, gallery_networks));
+                // emb = emb.reshape(1, { emb.size().width, 1 });
+                // lmrk = lmrk.reshape(1, { 5, 2 });
+
+                
+                // std::cout << emb << std::endl;
+                // NOTE: RegistrationStatus check imput image size and face detection
+                if (true /*status == RegistrationStatus::SUCCESS*/) {
+                    embeddings.push_back(emb);
+                    idx_to_id.push_back(id);
+                    identities.emplace_back(embeddings, label, id);
+                    ++id;
+                }
+            }
+        }
+
+        /**=================InvasionGallery=================*/
+
+        /**=================InvasionStart=================*/
+        cv::GComputation pp([&]() {
+            cv::GMat in;
+
+            cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
+            cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
+
+            cv::GArray<cv::Rect> rects = custom::GetRect::on(faces);
+
+            // cv::GArray<cv::GMat> landmarks = cv::gapi::infer<custom::LandmDetector>(rects, in);
+
+            // NOTE: AlignFaces(cv::warpAffine) returns GArray<cv::Mat>
+            // AlignFaces kernel
+            cv::GArray<cv::GMat> embeddings = cv::gapi::infer<custom::FaceReident>(rects, in);
+
+            cv::GMat frame = cv::gapi::copy(in);
+            return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces, embeddings));
+        });
+
+        auto kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVGetRect>();
+        auto networks = cv::gapi::networks(det_net, /*landm_net,*/ reident_net);
+
+        auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
+
+        auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);
+        cc.setSource(cv::gin(in_src));
+        cc.start();
+        /**=================InvasionEnd=================*/
+
         std::unique_ptr<FaceRecognizer> face_recognizer;
 
         if (!fd_model_path.empty() && !fr_model_path.empty() && !lm_model_path.empty()) {
@@ -745,14 +916,14 @@ int main(int argc, char* argv[]) {
                 landmarks_config.max_batch_size = 16;
             else
                 landmarks_config.max_batch_size = 1;
-            landmarks_config.ie = ie;
+            landmarks_config.ie = ie;          
 
             // TODO: crop_gallary flag needs to face_registration
             face_recognizer.reset(new FaceRecognizerDefault(
-                landmarks_config, reid_config,
+                // landmarks_config, reid_config,
                 face_registration_det_config,
                 FLAGS_fg, FLAGS_t_reid,
-                FLAGS_min_size_fr, FLAGS_crop_gallery,
+                FLAGS_min_size_fr, FLAGS_crop_gallery, identities,
                 FLAGS_greedy_reid_matching));
 
             if (actions_type == TEACHER && !face_recognizer->LabelExists(teacher_id)) {
@@ -853,53 +1024,7 @@ int main(int argc, char* argv[]) {
 
         cv::Size graphSize{static_cast<int>(frame.cols / 4), 60};
         Presenter presenter(FLAGS_u, frame.rows - graphSize.height - 10, graphSize);
-
-        /**=================InvasionStart=================*/
-        cv::GComputation pp([&]() {
-            cv::GMat in;
-
-            cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
-            cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
-
-            cv::GArray<cv::Rect> rects = custom::GetRect::on(faces);
-
-            // cv::GArray<cv::GMat> landmarks = cv::gapi::infer<custom::LandmDetector>(rects, in);
-
-            // NOTE: AlignFaces(cv::warpAffine) returns GArray<cv::Mat>
-            // AlignFaces kernel
-            cv::GArray<cv::GMat> embeddings = cv::gapi::infer<custom::FaceReident>(rects, in);
-
-            cv::GMat frame = cv::gapi::copy(in);
-            return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces, embeddings));
-        });
-
-        auto det_net = cv::gapi::ie::Params<custom::Faces>{
-            fd_model_path,
-            util::getBinPath(fd_model_path),
-            FLAGS_d_fd,
-        };
-
-        auto landm_net = cv::gapi::ie::Params<custom::LandmDetector>{
-            lm_model_path,
-            util::getBinPath(lm_model_path),
-            FLAGS_d_lm,
-        };
-
-        auto reident_net = cv::gapi::ie::Params<custom::FaceReident>{
-            fr_model_path,
-            util::getBinPath(fr_model_path),
-            FLAGS_d_reid,
-        };
-
-        auto kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVGetRect>();
-        auto networks = cv::gapi::networks(det_net, /*landm_net,*/ reident_net);
-
-        auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
-
-        auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);        
-        cc.setSource(cv::gin(in_src));
-        cc.start();
-        /**=================InvasionEnd=================*/
+                
         while (cc.running() && !is_last_frame) {
             logger.CreateNextFrameRecord(cap.GetVideoPath(), work_num_frames, prev_frame.cols, prev_frame.rows);
             auto started = std::chrono::high_resolution_clock::now();

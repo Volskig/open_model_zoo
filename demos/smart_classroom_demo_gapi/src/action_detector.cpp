@@ -23,27 +23,6 @@ bool SortScorePairDescend(const std::pair<float, T>& pair1,
     return pair1.first > pair2.first;
 }
 
-void ActionDetection::submitRequest() {
-    if (!enqueued_frames_) return;
-    enqueued_frames_ = 0;
-    BaseCnnDetection::submitRequest();
-}
-
-void ActionDetection::enqueue(const cv::Mat &frame) {
-    if (!request) {
-        request = net_.CreateInferRequestPtr();
-    }
-
-    width_ = static_cast<float>(frame.cols);
-    height_ = static_cast<float>(frame.rows);
-
-    Blob::Ptr inputBlob = request->GetBlob(input_name_);
-
-    matU8ToBlob<uint8_t>(frame, inputBlob);
-
-    enqueued_frames_ = 1;
-}
-
 ActionDetection::ActionDetection(const ActionDetectorConfig& config)
         : BaseCnnDetection(config.is_async), config_(config) {
     topoName = "action detector";
@@ -125,27 +104,7 @@ std::vector<int> ieSizeToVector(const SizeVector& ie_output_dims) {
 }
 
 DetectedActions ActionDetection::fetchResults() {
-    const auto loc_blob_name = new_network_ ? config_.new_loc_blob_name : config_.old_loc_blob_name;
-    const auto det_conf_blob_name = new_network_ ? config_.new_det_conf_blob_name : config_.old_det_conf_blob_name;
 
-    const cv::Mat priorbox_out =
-        new_network_
-          ? cv::Mat()
-          : cv::Mat(ieSizeToVector(request->GetBlob(config_.old_priorbox_blob_name)->getTensorDesc().getDims()),
-                    CV_32F, request->GetBlob(config_.old_priorbox_blob_name)->buffer());
-
-    const cv::Mat loc_out(ieSizeToVector(request->GetBlob(loc_blob_name)->getTensorDesc().getDims()),
-                          CV_32F, request->GetBlob(loc_blob_name)->buffer());
-
-    const cv::Mat main_conf_out(ieSizeToVector(request->GetBlob(det_conf_blob_name)->getTensorDesc().getDims()),
-                                CV_32F, request->GetBlob(det_conf_blob_name)->buffer());
-
-    std::vector<cv::Mat> add_conf_out;
-    for (int glob_anchor_id = 0; glob_anchor_id < num_glob_anchors_; ++glob_anchor_id) {
-        const auto& blob_name = glob_anchor_names_[glob_anchor_id];
-        add_conf_out.emplace_back(ieSizeToVector(request->GetBlob(blob_name)->getTensorDesc().getDims()),
-                                  CV_32F, request->GetBlob(blob_name)->buffer());
-    }
 
     /** Parse detections **/
     return GetDetections(loc_out, main_conf_out, priorbox_out, add_conf_out,

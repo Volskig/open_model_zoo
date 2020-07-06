@@ -869,12 +869,19 @@ int main(int argc, char* argv[]) {
             // AlignFaces kernel
             cv::GArray<cv::GMat> embeddings = cv::gapi::infer<custom::FaceReident>(rects, in);
 
+            cv::GArray <DetectedAction> actions = cv::gapi::infer<custom::ActionDetection>(in);
             cv::GMat frame = cv::gapi::copy(in);
             return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces, embeddings));
         });
 
+        auto action_net = cv::gapi::ie::Params<custom::ActionDetection>{
+            fr_model_path,
+            util::getBinPath(fr_model_path),
+            FLAGS_d_reid,
+        };
+
         auto kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVGetRect>();
-        auto networks = cv::gapi::networks(det_net, /*landm_net,*/ reident_net);
+        auto networks = cv::gapi::networks(det_net, /*landm_net,*/ reident_net, action_net);
 
         auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
 

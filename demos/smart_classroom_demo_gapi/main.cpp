@@ -479,12 +479,11 @@ public:
             int min_size_fr,
             bool crop_gallery,
             const std::vector<GalleryObject>& identities,
+            const std::vector<int> &idx_to_id,
             bool greedy_reid_matching
     )
-        : /*landmarks_detector(landmarks_detector_config),
-          face_reid(reid_config),*/
-          face_gallery(face_gallery_path, reid_threshold, min_size_fr, crop_gallery,
-                       face_registration_det_config, identities,
+        : face_gallery(face_gallery_path, reid_threshold, min_size_fr, crop_gallery,
+                       face_registration_det_config, identities, idx_to_id,
                        greedy_reid_matching)
     {
         if (face_gallery.size() == 0) {
@@ -629,13 +628,6 @@ namespace custom {
 } // namespace custom
 
 namespace {
-    // float ComputeReidDistance(const cv::Mat& descr1, const cv::Mat& descr2) {
-    //     float xy = static_cast<float>(descr1.dot(descr2));
-    //     float xx = static_cast<float>(descr1.dot(descr1));
-    //     float yy = static_cast<float>(descr2.dot(descr2));
-    //     float norm = sqrt(xx * yy) + 1e-6f;
-    //     return 1.0f - xy / norm;
-    // }
 
     bool file_exists(const std::string& name) {
         std::ifstream f(name.c_str());
@@ -782,14 +774,15 @@ int main(int argc, char* argv[]) {
             // cv::GArray<cv::Rect> rects = custom::GetRect::on(faces);
 
             // cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
-            cv::GMat frame = cv::gapi::copy(in);
+            
             /*cv::GArray<*/cv::GMat/*>*/ landmarks = cv::gapi::infer<custom::LandmDetector>(/*rects, */in);
-
             cv::GMat align_face = custom::AlignFace::on(landmarks, in);
             
             cv::GMat embeddings = cv::gapi::infer<custom::FaceReident>(align_face);
-            
-            return cv::GComputation(cv::GIn(in), cv::GOut(embeddings, frame));
+
+            cv::GMat frame = cv::gapi::copy(in);
+
+            return cv::GComputation(cv::GIn(in), cv::GOut(frame, embeddings));
         });
 
         auto det_net = cv::gapi::ie::Params<custom::Faces>{
@@ -845,13 +838,10 @@ int main(int argc, char* argv[]) {
                 cv::Mat emb;
                 cv::Mat lmrk;
                 cv::Mat frame;
-                gallery_pp.apply(cv::gin(image), cv::gout(emb, frame/*, lmrk*/),
+                gallery_pp.apply(cv::gin(image), cv::gout(frame, emb),
                                  cv::compile_args(gallery_kernels, gallery_networks));
-                // emb = emb.reshape(1, { emb.size().width, 1 });
-                // lmrk = lmrk.reshape(1, { 5, 2 });
+                emb = emb.reshape(1, { emb.size().width, 1 });
 
-                
-                // std::cout << emb << std::endl;
                 // NOTE: RegistrationStatus check imput image size and face detection
                 if (true /*status == RegistrationStatus::SUCCESS*/) {
                     embeddings.push_back(emb);
@@ -902,28 +892,27 @@ int main(int argc, char* argv[]) {
             face_registration_det_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
             face_registration_det_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
 
-            CnnConfig reid_config(fr_model_path);
-            reid_config.deviceName = FLAGS_d_reid;
-            if (checkDynamicBatchSupport(ie, FLAGS_d_reid))
-                reid_config.max_batch_size = 16;
-            else
-                reid_config.max_batch_size = 1;
-            reid_config.ie = ie;
+            // CnnConfig reid_config(fr_model_path);
+            // reid_config.deviceName = FLAGS_d_reid;
+            // if (checkDynamicBatchSupport(ie, FLAGS_d_reid))
+            //     reid_config.max_batch_size = 16;
+            // else
+            //     reid_config.max_batch_size = 1;
+            // reid_config.ie = ie;
 
-            CnnConfig landmarks_config(lm_model_path);
-            landmarks_config.deviceName = FLAGS_d_lm;
-            if (checkDynamicBatchSupport(ie, FLAGS_d_lm))
-                landmarks_config.max_batch_size = 16;
-            else
-                landmarks_config.max_batch_size = 1;
-            landmarks_config.ie = ie;          
+            // CnnConfig landmarks_config(lm_model_path);
+            // landmarks_config.deviceName = FLAGS_d_lm;
+            // if (checkDynamicBatchSupport(ie, FLAGS_d_lm))
+            //     landmarks_config.max_batch_size = 16;
+            // else
+            //     landmarks_config.max_batch_size = 1;
+            // landmarks_config.ie = ie;          
 
             // TODO: crop_gallary flag needs to face_registration
             face_recognizer.reset(new FaceRecognizerDefault(
-                // landmarks_config, reid_config,
                 face_registration_det_config,
                 FLAGS_fg, FLAGS_t_reid,
-                FLAGS_min_size_fr, FLAGS_crop_gallery, identities,
+                FLAGS_min_size_fr, FLAGS_crop_gallery, identities, idx_to_id,
                 FLAGS_greedy_reid_matching));
 
             if (actions_type == TEACHER && !face_recognizer->LabelExists(teacher_id)) {

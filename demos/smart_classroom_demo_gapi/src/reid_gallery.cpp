@@ -22,11 +22,6 @@ namespace {
         return 1.0f - xy / norm;
     }
 
-    // bool file_exists(const std::string& name) {
-    //     std::ifstream f(name.c_str());
-    //     return f.good();
-    // }
-
     inline char separator() {
         #ifdef _WIN32
         return '\\';
@@ -34,15 +29,6 @@ namespace {
         return '/';
         #endif
     }
-
-    // std::string folder_name(const std::string& path) {
-    //     size_t found_pos;
-    //     found_pos = path.find_last_of(separator());
-    //     if (found_pos != std::string::npos)
-    //         return path.substr(0, found_pos);
-    //     return std::string(".") + separator();
-    // }
-
 }  // namespace
 
 const char EmbeddingsGallery::unknown_label[] = "Unknown";
@@ -82,6 +68,7 @@ EmbeddingsGallery::EmbeddingsGallery(const std::string& ids_list,
                                      double threshold, int min_size_fr,
                                      bool crop_gallery, const detection::DetectorConfig &detector_config,
                                      const std::vector<GalleryObject> &identities_m,
+                                     const std::vector<int> &idx_to_id_m,
                                      bool use_greedy_matcher)
     : reid_threshold(threshold),
       use_greedy_matcher(use_greedy_matcher) {
@@ -89,14 +76,13 @@ EmbeddingsGallery::EmbeddingsGallery(const std::string& ids_list,
     // detection::FaceDetection detector(detector_config);
 
     identities = identities_m;
+    idx_to_id = idx_to_id_m;
 }
 
 std::vector<int> EmbeddingsGallery::GetIDsByEmbeddings(const std::vector<cv::Mat>& embeddings) const {
     if (embeddings.empty() || idx_to_id.empty())
         return std::vector<int>(embeddings.size(), unknown_id);
-
     cv::Mat distances(static_cast<int>(embeddings.size()), static_cast<int>(idx_to_id.size()), CV_32F);
-
     for (int i = 0; i < distances.rows; i++) {
         int k = 0;
         for (size_t j = 0; j < identities.size(); j++) {

@@ -10,7 +10,7 @@
 
 #include <opencv2/core/core.hpp>
 
-#include "cnn.hpp"
+// #include "cnn.hpp"
 #include "detector.hpp"
 
 enum class RegistrationStatus {
@@ -35,7 +35,7 @@ public:
     static const int unknown_id;
     EmbeddingsGallery(const std::string& ids_list, double threshold, int min_size_fr,
                       bool crop_gallery, const detection::DetectorConfig &detector_config,
-                      const std::vector<GalleryObject> &identities_m,
+                      const std::vector<GalleryObject> &identities_m, const std::vector<int> &idx_to_id_m,
                       bool use_greedy_matcher=false);
     size_t size() const;
     std::vector<int> GetIDsByEmbeddings(const std::vector<cv::Mat>& embeddings) const;

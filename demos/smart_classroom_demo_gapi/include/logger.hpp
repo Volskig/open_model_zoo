@@ -14,6 +14,7 @@
 #include <opencv2/opencv.hpp>
 #include <sstream>
 #include <details/ie_exception.hpp>
+#include <fstream>
 #include "tracker.hpp"
 
 #include "actions.hpp"

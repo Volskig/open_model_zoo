@@ -21,7 +21,7 @@
 
 #include "actions.hpp"
 #include "action_detector.hpp"
-#include "cnn.hpp"
+// #include "cnn.hpp"
 #include "detector.hpp"
 #include "face_reid.hpp"
 #include "tracker.hpp"
@@ -426,16 +426,16 @@ std::map<int, int> GetMapFaceTrackIdToLabel(const std::vector<Track>& face_track
     return face_track_id_to_label;
 }
 
-bool checkDynamicBatchSupport(const Core& ie, const std::string& device)  {
-    try  {
-        if (ie.GetConfig(device, CONFIG_KEY(DYN_BATCH_ENABLED)).as<std::string>() != PluginConfigParams::YES)
-            return false;
-    }
-    catch(const std::exception&)  {
-        return false;
-    }
-    return true;
-}
+// bool checkDynamicBatchSupport(const Core& ie, const std::string& device)  {
+//     try  {
+//         if (ie.GetConfig(device, CONFIG_KEY(DYN_BATCH_ENABLED)).as<std::string>() != PluginConfigParams::YES)
+//             return false;
+//     }
+//     catch(const std::exception&)  {
+//         return false;
+//     }
+//     return true;
+// }
 
 class FaceRecognizer {
 public:
@@ -547,11 +547,15 @@ bool ParseAndCheckCommandLine(int argc, char *argv[]) {
 
 namespace config {
     detection::DetectorConfig face_config;
+    ActionDetectorConfig action_config;
 } // namespace config
 namespace util {
-    std::string getBinPath(const std::string & pathXML) {
+    std::string GetBinPath(const std::string & pathXML) {
         std::string pathBIN(pathXML);
         return pathBIN.replace(pathBIN.size() - 3, 3, "bin");
+    }
+    bool IsNetworkNewVersion(const std::string & model_path) {
+        return model_path[model_path.size() - 5] == '6';
     }
 } // namespace util
 
@@ -559,7 +563,10 @@ namespace custom {
     /**Nets*/
     G_API_NET(Faces,         <cv::GMat(cv::GMat)>, "face-detector");
     G_API_NET(LandmDetector, <cv::GMat(cv::GMat)>, "landm_detector");
-    G_API_NET(FaceReident,   <cv::GMat(cv::GMat)>,  "face_reidentificator");
+    G_API_NET(FaceReident,   <cv::GMat(cv::GMat)>, "face_reidentificator");
+    using PAInfo = std::tuple<cv::GMat, cv::GMat, cv::GMat, cv::GMat,
+                              cv::GMat, cv::GMat, cv::GMat>;
+    G_API_NET(PersAction, <PAInfo(cv::GMat)>, "person-detection-action-recognition");
 
     G_API_OP(PostProc,
              <cv::GArray<detection::DetectedObject>(cv::GMat,
@@ -586,6 +593,21 @@ namespace custom {
              "custom.align_face") {
         static cv::GMatDesc outMeta(const cv::GMatDesc &, const cv::GMatDesc & in) {
             return in;
+        }
+    };
+
+    G_API_OP(PersonDetActionRec, <cv::GArray<DetectedAction>(cv::GMat, cv::GMat,
+                                                             cv::GMat, cv::GMat,
+                                                             cv::GMat, cv::GMat,
+                                                             cv::GMat, cv::GMat,
+                                                             ActionDetectorConfig)>,
+             "custom.person_detection_action_recognition_postproc") {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc &, const cv::GMatDesc &,
+                                      const cv::GMatDesc &, const cv::GMatDesc &,
+                                      const cv::GMatDesc &, const cv::GMatDesc &,
+                                      const cv::GMatDesc &, const cv::GMatDesc &,
+                                      const ActionDetectorConfig &) {
+            return cv::empty_array_desc();
         }
     };
 
@@ -623,6 +645,32 @@ namespace custom {
             std::vector<cv::Mat> landmarks_vec = { lmrk };
             AlignFaces(&images, &landmarks_vec);
             images[0].copyTo(out_image);
+        }
+    };
+
+    GAPI_OCV_KERNEL(OCVPersonDetActionRec, PersonDetActionRec) {
+        static void run(const cv::Mat &in_ssd_local,
+                        const cv::Mat &in_ssd_conf,
+                        const cv::Mat &in_ssd_priorbox,
+                        const cv::Mat &in_ssd_anchor1,
+                        const cv::Mat &in_ssd_anchor2,
+                        const cv::Mat &in_ssd_anchor3,
+                        const cv::Mat &in_ssd_anchor4,                        
+                        const cv::Mat &in_frame,
+                        const ActionDetectorConfig & action_config,
+                        DetectedActions &out_detections) {
+            std::unique_ptr<ActionDetection> action_detector(new ActionDetection(action_config));
+            out_detections = {};
+            if (action_config.model_exist) {
+                out_detections = action_detector->fetchResults(in_ssd_local,
+                                                               in_ssd_conf,
+                                                               in_ssd_priorbox,
+                                                               in_ssd_anchor1,
+                                                               in_ssd_anchor2,
+                                                               in_ssd_anchor3,
+                                                               in_ssd_anchor4,
+                                                               in_frame);
+            }
         }
     };
 } // namespace custom
@@ -738,23 +786,21 @@ int main(int argc, char* argv[]) {
             loadedDevices.insert(device);
         }
 
-        std::unique_ptr<AsyncDetection<DetectedAction>> action_detector;
         if (!ad_model_path.empty()) {
             // Load action detector
-            ActionDetectorConfig action_config(ad_model_path);
-            action_config.deviceName = FLAGS_d_act;
-            action_config.ie = ie;
-            action_config.is_async = true;
-            action_config.detection_confidence_threshold = static_cast<float>(FLAGS_t_ad);
-            action_config.action_confidence_threshold = static_cast<float>(FLAGS_t_ar);
-            action_config.num_action_classes = actions_map.size();
-            action_detector.reset(new ActionDetection(action_config));
+            // TODO: change 'model_exist'
+            config::action_config.model_exist = true;
+            config::action_config.new_network = util::IsNetworkNewVersion(ad_model_path);
+            config::action_config.detection_confidence_threshold = static_cast<float>(FLAGS_t_ad);
+            config::action_config.action_confidence_threshold = static_cast<float>(FLAGS_t_ar);
+            config::action_config.num_action_classes = actions_map.size();
         } else {
-            action_detector.reset(new NullDetection<DetectedAction>);
+            config::action_config.model_exist = false;
         }
 
         if (!fd_model_path.empty()) {
             // Load face detector
+            // TODO: change 'model_exist'
             config::face_config.model_exist = true;
             config::face_config.confidence_threshold = static_cast<float>(FLAGS_t_fd);
             config::face_config.input_h = FLAGS_inh_fd;
@@ -787,19 +833,19 @@ int main(int argc, char* argv[]) {
 
         auto det_net = cv::gapi::ie::Params<custom::Faces>{
             fd_model_path,
-            util::getBinPath(fd_model_path),
+            util::GetBinPath(fd_model_path),
             FLAGS_d_fd,
         };
 
         auto landm_net = cv::gapi::ie::Params<custom::LandmDetector>{
             lm_model_path,
-            util::getBinPath(lm_model_path),
+            util::GetBinPath(lm_model_path),
             FLAGS_d_lm,
         };
 
         auto reident_net = cv::gapi::ie::Params<custom::FaceReident>{
             fr_model_path,
-            util::getBinPath(fr_model_path),
+            util::GetBinPath(fr_model_path),
             FLAGS_d_reid,
         };
 
@@ -869,18 +915,59 @@ int main(int argc, char* argv[]) {
             // AlignFaces kernel
             cv::GArray<cv::GMat> embeddings = cv::gapi::infer<custom::FaceReident>(rects, in);
 
-            cv::GArray <DetectedAction> actions = cv::gapi::infer<custom::ActionDetection>(in);
+            cv::GMat location;
+            cv::GMat detect_confidences;
+            cv::GMat priorboxes;
+            cv::GMat action_con1;
+            cv::GMat action_con2;
+            cv::GMat action_con3;
+            cv::GMat action_con4;
+
+            std::tie(location,
+                     detect_confidences,
+                     priorboxes,
+                     action_con1,
+                     action_con2,
+                     action_con3,
+                     action_con4) =
+                cv::gapi::infer<custom::PersAction>(in);
+
+            cv::GArray<DetectedAction> persons = custom::PersonDetActionRec::on(location,
+                                                                                detect_confidences,
+                                                                                priorboxes,
+                                                                                action_con1,
+                                                                                action_con2,
+                                                                                action_con3,
+                                                                                action_con4,
+                                                                                in,
+                                                                                config::action_config);
             cv::GMat frame = cv::gapi::copy(in);
-            return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces, embeddings));
+            return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces, embeddings, persons));
         });
+        std::array<std::string, 7> outputLayersList;
+        !config::action_config.new_network ? outputLayersList = {"mbox_loc1/out/conv/flat",
+                                                                 "mbox_main_conf/out/conv/flat/softmax/flat",
+                                                                 "mbox/priorbox",
+                                                                 "out/anchor1",
+                                                                 "out/anchor2",
+                                                                 "out/anchor3",
+                                                                 "out/anchor4"} :
+                                             outputLayersList = {"ActionNet/out_detection_loc",
+                                                                 "ActionNet/out_detection_conf",
+                                                                 "ActionNet/action_heads/out_head_1_anchor_1",
+                                                                 "ActionNet/action_heads/out_head_2_anchor_1",
+                                                                 "ActionNet/action_heads/out_head_2_anchor_2",
+                                                                 "ActionNet/action_heads/out_head_2_anchor_3",
+                                                                 "ActionNet/action_heads/out_head_2_anchor_4"};
+        auto action_net = cv::gapi::ie::Params<custom::PersAction>{
+            ad_model_path,
+            util::GetBinPath(ad_model_path),
+            FLAGS_d_act,
+        }.cfgOutputLayers(outputLayersList);
 
-        auto action_net = cv::gapi::ie::Params<custom::ActionDetection>{
-            fr_model_path,
-            util::getBinPath(fr_model_path),
-            FLAGS_d_reid,
-        };
-
-        auto kernels = cv::gapi::kernels <custom::OCVPostProc, custom::OCVGetRect>();
+        auto kernels = cv::gapi::kernels <custom::OCVPostProc,
+                                          custom::OCVGetRect,
+                                          custom::OCVPersonDetActionRec>();
         auto networks = cv::gapi::networks(det_net, /*landm_net,*/ reident_net, action_net);
 
         auto cc = pp.compileStreaming(cv::compile_args(kernels, networks));
@@ -991,8 +1078,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (actions_type != TOP_K) {
-            action_detector->enqueue(frame);
-            action_detector->submitRequest();
+            // action_detector->enqueue(frame);
+            // action_detector->submitRequest();
         }
 
         prev_frame = frame.clone();
@@ -1021,7 +1108,7 @@ int main(int argc, char* argv[]) {
         cv::Size graphSize{static_cast<int>(frame.cols / 4), 60};
         Presenter presenter(FLAGS_u, frame.rows - graphSize.height - 10, graphSize);
                 
-        while (cc.running() && !is_last_frame) {
+        while (cc.running() /*&& !is_last_frame*/) {
             logger.CreateNextFrameRecord(cap.GetVideoPath(), work_num_frames, prev_frame.cols, prev_frame.rows);
             auto started = std::chrono::high_resolution_clock::now();
 
@@ -1040,11 +1127,11 @@ int main(int argc, char* argv[]) {
             sc_visualizer.SetFrame(prev_frame);
 
             if (actions_type == TOP_K) {
-                if ((is_monitoring_enabled && key == SPACE_KEY) ||
+                /*if ((is_monitoring_enabled && key == SPACE_KEY) ||
                     (!is_monitoring_enabled && key != SPACE_KEY)) {
                     if (key == SPACE_KEY) {
-                        action_detector->wait();
-                        action_detector->fetchResults();
+                        // action_detector->wait();
+                        // action_detector->fetchResults();
 
                         tracker_action.Reset();
                         top_k_obj_ids.clear();
@@ -1122,13 +1209,14 @@ int main(int argc, char* argv[]) {
 
                         sc_visualizer.DrawObject(action.rect, box_caption, white_color, box_color, true);
                     }
-                }
+                }*/
             } else {
                 /**=================InvasionStart=================*/
                 detection::DetectedObjects faces;
                 std::vector<cv::Mat> embeddings;
-               
-                auto out_vector = cv::gout(frame, faces, embeddings);
+                DetectedActions actions;
+
+                auto out_vector = cv::gout(frame, faces, embeddings, actions);
                 if (!cc.try_pull(std::move(out_vector))) {
                     if (cv::waitKey(1) >= 0) break;
                     else continue;
@@ -1140,14 +1228,12 @@ int main(int argc, char* argv[]) {
                 }
 
                 /**=================InvasionEnd=================*/
-                action_detector->wait();
-
-                DetectedActions actions = action_detector->fetchResults();
+                // action_detector->wait();
 
                 if (!is_last_frame) {
                     prev_frame_path = cap.GetVideoPath();
-                    action_detector->enqueue(frame);
-                    action_detector->submitRequest();
+                    // action_detector->enqueue(frame);
+                    // action_detector->submitRequest();
                 }
 
                 // TODO: remove faces from Recognize
@@ -1254,8 +1340,7 @@ int main(int argc, char* argv[]) {
         slog::info << "Frames processed: " << total_num_frames << slog::endl;
         if (FLAGS_pc) {
             std::map<std::string, std::string>  mapDevices = getMapFullDevicesNames(ie, devices);
-            action_detector->wait();
-            action_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_act));
+            // action_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_act));
             // face_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_fd));
             face_recognizer->PrintPerformanceCounts(
                 getFullDeviceName(mapDevices, FLAGS_d_lm),

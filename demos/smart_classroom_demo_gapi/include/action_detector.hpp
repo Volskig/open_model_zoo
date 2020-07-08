@@ -55,6 +55,8 @@ using SSDHeads = std::vector<SSDHead>;
 * @brief Config for the Action Detection model
 */
 struct ActionDetectorConfig {
+    bool new_network = false;
+    bool model_exist = true;
     /** @brief Scale paramter for Soft-NMS algorithm */
     float nms_sigma = 0.6f;
     /** @brief Threshold for detected objects */
@@ -94,7 +96,14 @@ public:
     // void printPerformanceCounts(const std::string &fullDeviceName) override {
     //     BaseCnnDetection::printPerformanceCounts(fullDeviceName);
     // }
-    DetectedActions fetchResults() override;
+    DetectedActions fetchResults(const cv::Mat &in_ssd_local,
+                                 const cv::Mat &in_ssd_conf,
+                                 const cv::Mat &in_ssd_priorbox,
+                                 const cv::Mat &in_ssd_anchor1,
+                                 const cv::Mat &in_ssd_anchor2,
+                                 const cv::Mat &in_ssd_anchor3,
+                                 const cv::Mat &in_ssd_anchor4,
+                                 const cv::Mat &in_frame);
 
 private:
     ActionDetectorConfig config_;

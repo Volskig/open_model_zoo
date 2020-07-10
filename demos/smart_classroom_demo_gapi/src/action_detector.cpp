@@ -9,7 +9,6 @@
 #include <limits>
 #include <numeric>
 #include <opencv2/imgproc/imgproc.hpp>
-#include <iostream>
 
 #define SSD_LOCATION_RECORD_SIZE 4
 #define SSD_PRIORBOX_RECORD_SIZE 4
@@ -68,7 +67,7 @@ DetectedActions ActionDetection::fetchResults(const cv::Mat &in_ssd_local,
 
         int anchor_height, anchor_width;
         for (int anchor_id = 0; anchor_id < head_anchors[head_id]; ++anchor_id) {
-            cv::MatSize anchor_dims = add_conf_out[anchor_id].size;
+            cv::MatSize anchor_dims(nullptr);
             if (head_anchors[head_id] == 1) {
                 anchor_dims = add_conf_out[anchor_id].size;
             } else {
@@ -76,11 +75,11 @@ DetectedActions ActionDetection::fetchResults(const cv::Mat &in_ssd_local,
             }            
             anchor_height = new_network_ ? anchor_dims[2] : anchor_dims[1];
             anchor_width = new_network_ ? anchor_dims[3] : anchor_dims[2];
-            // std::size_t action_dimention_idx = new_network_ ? 1 : 3;
-            // if (anchor_dims[action_dimention_idx] != config_.num_action_classes) {
-            //     throw std::logic_error("The number of specified actions and the number of actions predicted by "
-            //         "the Person/Action Detection Retail model must match");
-            // }
+            std::size_t action_dimention_idx = new_network_ ? 1 : 3;
+            if (static_cast<unsigned int>(anchor_dims[action_dimention_idx]) != config_.num_action_classes) {
+                throw std::logic_error("The number of specified actions and the number of actions predicted by "
+                    "the Person/Action Detection Retail model must match");
+            }
 
             const int anchor_size = anchor_height * anchor_width;
             head_shift += anchor_size;

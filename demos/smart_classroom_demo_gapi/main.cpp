@@ -21,11 +21,9 @@
 
 #include "actions.hpp"
 #include "action_detector.hpp"
-// #include "cnn.hpp"
 #include "detector.hpp"
 #include "face_reid.hpp"
 #include "tracker.hpp"
-#include "image_grabber.hpp"
 #include "logger.hpp"
 #include "smart_classroom_demo.hpp"
 
@@ -175,7 +173,7 @@ public:
     void DrawFPS(const float fps, const cv::Scalar& color) {
         if (enabled_ && !writer_.isOpened()) {
             cv::putText(frame_,
-                        std::to_string(static_cast<int>(fps)) + " fps",
+                        std::to_string(/*static_cast<int>*/(fps)) + " fps",
                         cv::Point(10, 50), cv::FONT_HERSHEY_SIMPLEX, 1,
                         color, 2, cv::LINE_AA);
         }
@@ -248,7 +246,7 @@ void ConvertActionMapsToFrameEventTracks(const std::vector<std::map<int, int>>& 
     }
 }
 
-void SmoothTracks(const std::map<int, FrameEventsTrack>& obj_id_to_actions_track,
+/*void SmoothTracks(const std::map<int, FrameEventsTrack>& obj_id_to_actions_track,
                   int start_frame, int end_frame, int window_size, int min_length, int default_action,
                   std::map<int, RangeEventsTrack>* obj_id_to_events) {
     // Iterate over face tracks
@@ -319,7 +317,7 @@ void SmoothTracks(const std::map<int, FrameEventsTrack>& obj_id_to_actions_track
             }
         }
     }
-}
+}*/
 
 void ConvertRangeEventsTracksToActionMaps(int num_frames,
                                           const std::map<int, RangeEventsTrack>& obj_id_to_events,
@@ -473,13 +471,13 @@ public:
 class FaceRecognizerDefault : public FaceRecognizer {
 public:
     FaceRecognizerDefault(
-            const detection::DetectorConfig& face_registration_det_config,
-            const std::string& face_gallery_path,
+            const detection::DetectorConfig &&face_registration_det_config,
+            const std::string &&face_gallery_path,
             double reid_threshold,
             int min_size_fr,
             bool crop_gallery,
-            const std::vector<GalleryObject>& identities,
-            const std::vector<int> &idx_to_id,
+            const std::vector<GalleryObject> &&identities,
+            const std::vector<int> &&idx_to_id,
             bool greedy_reid_matching
     )
         : face_gallery(face_gallery_path, reid_threshold, min_size_fr, crop_gallery,
@@ -516,8 +514,6 @@ public:
     }
 
 private:
-    // VectorCNN landmarks_detector;
-    // VectorCNN face_reid;
     EmbeddingsGallery face_gallery;
 };
 
@@ -555,7 +551,29 @@ namespace util {
         return pathBIN.replace(pathBIN.size() - 3, 3, "bin");
     }
     bool IsNetworkNewVersion(const std::string & model_path) {
-        return model_path[model_path.size() - 5] == '6';
+        return model_path.at(model_path.size() - 5) == '6';
+    }
+    struct Avg {
+        struct Elapsed {
+            explicit Elapsed(double ms) : ss(ms / 1000.),
+                mm(static_cast<int>(std::lround(ss / 60))) {}
+            const double ss;
+            const int    mm;
+        };
+
+        using MS = std::chrono::duration<double, std::ratio<1, 1000>>;
+        using TS = std::chrono::time_point<std::chrono::high_resolution_clock>;
+        TS started;
+
+        void    start() { started = now(); }
+        TS      now() const { return std::chrono::high_resolution_clock::now(); }
+        double  tick() const { return std::chrono::duration_cast<MS>(now() - started).count(); }
+        Elapsed elapsed() const { return Elapsed{ tick() }; }
+        double  fps(std::size_t n) const { return static_cast<double>(n) / (tick() / 1000.); }
+    };
+    std::ostream& operator<<(std::ostream &os, const Avg::Elapsed &e) {
+        os << e.mm << ':' << (e.ss - 60 * e.mm);
+        return os;
     }
 } // namespace util
 
@@ -740,12 +758,6 @@ int main(int argc, char* argv[]) {
         }
 
         slog::info << "Reading video '" << video_path << "'" << slog::endl;
-        ImageGrabber cap(video_path);
-        if (!cap.IsOpened()) {
-            slog::err << "Cannot open the video" << slog::endl;
-            return 1;
-        }
-
         slog::info << "Loading Inference Engine" << slog::endl;
         Core ie;
 
@@ -884,6 +896,7 @@ int main(int argc, char* argv[]) {
                 cv::Mat emb;
                 cv::Mat lmrk;
                 cv::Mat frame;
+
                 gallery_pp.apply(cv::gin(image), cv::gout(frame, emb),
                                  cv::compile_args(gallery_kernels, gallery_networks));
                 emb = emb.reshape(1, { emb.size().width, 1 });
@@ -903,6 +916,7 @@ int main(int argc, char* argv[]) {
         /**=================InvasionStart=================*/
         cv::GComputation pp([&]() {
             cv::GMat in;
+            cv::GMat frame = cv::gapi::copy(in);
 
             cv::GMat detections = cv::gapi::infer<custom::Faces>(in);
             cv::GArray<detection::DetectedObject> faces = custom::PostProc::on(detections, in, config::face_config);
@@ -940,8 +954,7 @@ int main(int argc, char* argv[]) {
                                                                                 action_con3,
                                                                                 action_con4,
                                                                                 in,
-                                                                                config::action_config);
-            cv::GMat frame = cv::gapi::copy(in);
+                                                                                config::action_config);            
             return cv::GComputation(cv::GIn(in), cv::GOut(frame, faces, embeddings, persons));
         });
         std::array<std::string, 7> outputLayersList;
@@ -975,6 +988,8 @@ int main(int argc, char* argv[]) {
         auto in_src = cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path);
         cc.setSource(cv::gin(in_src));
         cc.start();
+        util::Avg avg;
+        avg.start();
         /**=================InvasionEnd=================*/
 
         std::unique_ptr<FaceRecognizer> face_recognizer;
@@ -986,27 +1001,11 @@ int main(int argc, char* argv[]) {
             face_registration_det_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
             face_registration_det_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
 
-            // CnnConfig reid_config(fr_model_path);
-            // reid_config.deviceName = FLAGS_d_reid;
-            // if (checkDynamicBatchSupport(ie, FLAGS_d_reid))
-            //     reid_config.max_batch_size = 16;
-            // else
-            //     reid_config.max_batch_size = 1;
-            // reid_config.ie = ie;
-
-            // CnnConfig landmarks_config(lm_model_path);
-            // landmarks_config.deviceName = FLAGS_d_lm;
-            // if (checkDynamicBatchSupport(ie, FLAGS_d_lm))
-            //     landmarks_config.max_batch_size = 16;
-            // else
-            //     landmarks_config.max_batch_size = 1;
-            // landmarks_config.ie = ie;          
-
             // TODO: crop_gallary flag needs to face_registration
             face_recognizer.reset(new FaceRecognizerDefault(
-                face_registration_det_config,
-                FLAGS_fg, FLAGS_t_reid,
-                FLAGS_min_size_fr, FLAGS_crop_gallery, identities, idx_to_id,
+                std::move(face_registration_det_config),
+                std::move(FLAGS_fg), FLAGS_t_reid,
+                FLAGS_min_size_fr, FLAGS_crop_gallery, std::move(identities), std::move(idx_to_id),
                 FLAGS_greedy_reid_matching));
 
             if (actions_type == TEACHER && !face_recognizer->LabelExists(teacher_id)) {
@@ -1055,13 +1054,13 @@ int main(int argc, char* argv[]) {
 
         cv::Mat frame, prev_frame;
         
-        float work_time_ms = 0.f;
-        float wait_time_ms = 0.f;
+        // float work_time_ms = 0.f;
+        // float wait_time_ms = 0.f;
         size_t work_num_frames = 0;
-        size_t wait_num_frames = 0;
+        // size_t wait_num_frames = 0;
         size_t total_num_frames = 0;
         const char ESC_KEY = 27;
-        const char SPACE_KEY = 32;
+        // const char SPACE_KEY = 32;
         const cv::Scalar green_color(0, 255, 0);
         const cv::Scalar red_color(0, 0, 255);
         const cv::Scalar white_color(255, 255, 255);
@@ -1070,34 +1069,24 @@ int main(int argc, char* argv[]) {
 
         int teacher_track_id = -1;
 
-        if (cap.GrabNext()) {
-            cap.Retrieve(frame);
-        } else {
-            slog::err << "Can't read the first frame" << slog::endl;
-            return 1;
-        }
-
         if (actions_type != TOP_K) {
             // action_detector->enqueue(frame);
             // action_detector->submitRequest();
         }
 
-        prev_frame = frame.clone();
-
         bool is_last_frame = false;
-        bool is_monitoring_enabled = false;
-        auto prev_frame_path = cap.GetVideoPath();
-
+        // bool is_monitoring_enabled = false;
+        
         cv::VideoWriter vid_writer;
         if (!FLAGS_out_v.empty()) {
-            vid_writer = cv::VideoWriter(FLAGS_out_v, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-                                         cap.GetFPS(), Visualizer::GetOutputSize(frame.size()));
+            // vid_writer = cv::VideoWriter(FLAGS_out_v, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
+            //                              cap.GetFPS(), Visualizer::GetOutputSize(frame.size()));
         }
         Visualizer sc_visualizer(!FLAGS_no_show, vid_writer, num_top_persons);
         DetectionsLogger logger(std::cout, FLAGS_r, FLAGS_ad, FLAGS_al);
 
-        const int smooth_window_size = static_cast<int>(cap.GetFPS() * FLAGS_d_ad);
-        const int smooth_min_length = static_cast<int>(cap.GetFPS() * FLAGS_min_ad);
+        // const int smooth_window_size = static_cast<int>(cap.GetFPS() * FLAGS_d_ad);
+        // const int smooth_min_length = static_cast<int>(cap.GetFPS() * FLAGS_min_ad);
 
         std::cout << "To close the application, press 'CTRL+C' here";
         if (!FLAGS_no_show) {
@@ -1107,14 +1096,9 @@ int main(int argc, char* argv[]) {
 
         cv::Size graphSize{static_cast<int>(frame.cols / 4), 60};
         Presenter presenter(FLAGS_u, frame.rows - graphSize.height - 10, graphSize);
-                
-        while (cc.running() /*&& !is_last_frame*/) {
-            logger.CreateNextFrameRecord(cap.GetVideoPath(), work_num_frames, prev_frame.cols, prev_frame.rows);
-            auto started = std::chrono::high_resolution_clock::now();
-
-            is_last_frame = !cap.GrabNext();
-            if (!is_last_frame)
-                cap.Retrieve(frame);
+        while (cc.running()) {
+            logger.CreateNextFrameRecord(video_path, work_num_frames, frame.cols, frame.rows);
+            
 
             char key = cv::waitKey(1);
             if (key == ESC_KEY) {
@@ -1122,9 +1106,7 @@ int main(int argc, char* argv[]) {
             }
             presenter.handleKey(key);
 
-            presenter.drawGraphs(prev_frame);
-
-            sc_visualizer.SetFrame(prev_frame);
+            presenter.drawGraphs(frame);
 
             if (actions_type == TOP_K) {
                 /*if ((is_monitoring_enabled && key == SPACE_KEY) ||
@@ -1160,8 +1142,7 @@ int main(int argc, char* argv[]) {
                     action_detector->wait();
                     DetectedActions actions = action_detector->fetchResults();
 
-                    if (!is_last_frame) {
-                        prev_frame_path = cap.GetVideoPath();
+                    if (!is_last_frame) {          
                         action_detector->enqueue(frame);
                         action_detector->submitRequest();
                     }
@@ -1221,17 +1202,13 @@ int main(int argc, char* argv[]) {
                     if (cv::waitKey(1) >= 0) break;
                     else continue;
                 }
-
+                sc_visualizer.SetFrame(frame);
                 // NOTE: Recognize works with shape 256:1 after G-API we get 1:256:1:1
                 for (auto & emb : embeddings) {
                     emb = emb.reshape(1, { emb.size().width, 1 });
                 }
 
-                /**=================InvasionEnd=================*/
-                // action_detector->wait();
-
                 if (!is_last_frame) {
-                    prev_frame_path = cap.GetVideoPath();
                     // action_detector->enqueue(frame);
                     // action_detector->submitRequest();
                 }
@@ -1243,7 +1220,7 @@ int main(int argc, char* argv[]) {
                 for (size_t i = 0; i < faces.size(); i++) {
                     tracked_face_objects.emplace_back(faces[i].rect, faces[i].confidence, ids[i]);
                 }
-                tracker_reid.Process(prev_frame, tracked_face_objects, work_num_frames);
+                tracker_reid.Process(frame, tracked_face_objects, work_num_frames);
 
                 const auto tracked_faces = tracker_reid.TrackedDetectionsWithLabels();
 
@@ -1252,14 +1229,8 @@ int main(int argc, char* argv[]) {
                     tracked_action_objects.emplace_back(action.rect, action.detection_conf, action.label);
                 }
 
-                tracker_action.Process(prev_frame, tracked_action_objects, work_num_frames);
-                const auto tracked_actions = tracker_action.TrackedDetectionsWithLabels();
-
-                auto elapsed = std::chrono::high_resolution_clock::now() - started;
-                auto elapsed_ms =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-
-                work_time_ms += elapsed_ms;
+                tracker_action.Process(frame, tracked_action_objects, work_num_frames);
+                const auto tracked_actions = tracker_action.TrackedDetectionsWithLabels();                
 
                 std::map<int, int> frame_face_obj_id_to_action;
                 for (size_t j = 0; j < tracked_faces.size(); j++) {
@@ -1313,8 +1284,8 @@ int main(int argc, char* argv[]) {
                         logger.AddPersonToFrame(track_action.rect, action_label, teacher_id);
                     }
                 }
-
-                sc_visualizer.DrawFPS(1e3f / (work_time_ms / static_cast<float>(work_num_frames) + 1e-6f),
+                avg.elapsed();
+                sc_visualizer.DrawFPS(static_cast<float>(avg.fps(work_num_frames)),
                                       red_color);
 
                 ++work_num_frames;
@@ -1327,24 +1298,23 @@ int main(int argc, char* argv[]) {
             if (FLAGS_last_frame >= 0 && work_num_frames > static_cast<size_t>(FLAGS_last_frame)) {
                 break;
             }
-            prev_frame = frame.clone();
             logger.FinalizeFrameRecord();
         }
         sc_visualizer.Finalize();
 
         slog::info << slog::endl;
-        if (work_num_frames > 0) {
-            const float mean_time_ms = work_time_ms / static_cast<float>(work_num_frames);
-            slog::info << "Mean FPS: " << 1e3f / mean_time_ms << slog::endl;
-        }
+        // if (work_num_frames > 0) {
+        //     const float mean_time_ms = work_time_ms / static_cast<float>(work_num_frames);
+        //     slog::info << "Mean FPS: " << 1e3f / mean_time_ms << slog::endl;
+        // }
         slog::info << "Frames processed: " << total_num_frames << slog::endl;
         if (FLAGS_pc) {
             std::map<std::string, std::string>  mapDevices = getMapFullDevicesNames(ie, devices);
             // action_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_act));
             // face_detector->printPerformanceCounts(getFullDeviceName(mapDevices, FLAGS_d_fd));
-            face_recognizer->PrintPerformanceCounts(
-                getFullDeviceName(mapDevices, FLAGS_d_lm),
-                getFullDeviceName(mapDevices, FLAGS_d_reid));
+            // face_recognizer->PrintPerformanceCounts(
+            //     getFullDeviceName(mapDevices, FLAGS_d_lm),
+            //     getFullDeviceName(mapDevices, FLAGS_d_reid));
         }
         if (actions_type == STUDENT) {
             auto face_tracks = tracker_reid.vector_tracks();
@@ -1360,12 +1330,12 @@ int main(int argc, char* argv[]) {
                 ConvertActionMapsToFrameEventTracks(face_obj_id_to_action_maps, default_action_index,
                                                     &face_obj_id_to_actions_track);
 
-                const int start_frame = 0;
+                // const int start_frame = 0;
                 const int end_frame = face_obj_id_to_action_maps.size();
                 std::map<int, RangeEventsTrack> face_obj_id_to_events;
-                SmoothTracks(face_obj_id_to_actions_track, start_frame, end_frame,
-                             smooth_window_size, smooth_min_length, default_action_index,
-                             &face_obj_id_to_events);
+                // SmoothTracks(face_obj_id_to_actions_track, start_frame, end_frame,
+                //              smooth_window_size, smooth_min_length, default_action_index,
+                //              &face_obj_id_to_events);
 
                 slog::info << "Final ID->events mapping" << slog::endl;
                 logger.DumpTracks(face_obj_id_to_events,
@@ -1377,7 +1347,7 @@ int main(int argc, char* argv[]) {
                                                      &face_obj_id_to_smoothed_action_maps);
 
                 slog::info << "Final per-frame ID->action mapping" << slog::endl;
-                logger.DumpDetections(cap.GetVideoPath(), frame.size(), work_num_frames,
+                logger.DumpDetections(video_path, frame.size(), work_num_frames,
                                       new_face_tracks,
                                       face_track_id_to_label,
                                       actions_map, face_id_to_label_map,

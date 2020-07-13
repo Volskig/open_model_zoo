@@ -471,13 +471,13 @@ public:
 class FaceRecognizerDefault : public FaceRecognizer {
 public:
     FaceRecognizerDefault(
-            const detection::DetectorConfig &&face_registration_det_config,
-            const std::string &&face_gallery_path,
+            const detection::DetectorConfig &face_registration_det_config,
+            const std::string &face_gallery_path,
             double reid_threshold,
             int min_size_fr,
             bool crop_gallery,
-            const std::vector<GalleryObject> &&identities,
-            const std::vector<int> &&idx_to_id,
+            const std::vector<GalleryObject> &identities,
+            const std::vector<int> &idx_to_id,
             bool greedy_reid_matching
     )
         : face_gallery(face_gallery_path, reid_threshold, min_size_fr, crop_gallery,

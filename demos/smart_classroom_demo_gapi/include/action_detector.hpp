@@ -10,8 +10,6 @@
 
 #include <opencv2/core/core.hpp>
 
-// #include "cnn.hpp"
-
 /**
 * @brief Class for detection with action info
 */
@@ -56,7 +54,7 @@ using SSDHeads = std::vector<SSDHead>;
 */
 struct ActionDetectorConfig {
     bool new_network = false;
-    bool model_exist = true;
+    bool model_exist = false;
     /** @brief Scale paramter for Soft-NMS algorithm */
     float nms_sigma = 0.6f;
     /** @brief Threshold for detected objects */

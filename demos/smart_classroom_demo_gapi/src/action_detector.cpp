@@ -25,6 +25,7 @@ bool SortScorePairDescend(const std::pair<float, T>& pair1,
 ActionDetection::ActionDetection(const ActionDetectorConfig& config)
         : config_(config) {    
     new_network_ = config_.new_network;
+    // TODO: Network input size (needs to get it somewhere)
     network_input_size_.height = 400;
     network_input_size_.width = 680;
     binary_task_ = config_.num_action_classes == 2;
@@ -41,7 +42,6 @@ DetectedActions ActionDetection::fetchResults(const cv::Mat &in_ssd_local,
     /** enqueue(...) functional **/
     width_ = static_cast<float>(in_frame.cols);
     height_ = static_cast<float>(in_frame.rows);
-
     /** Ancors list **/
     std::vector<cv::Mat> add_conf_out;
     if (new_network_) {
@@ -72,11 +72,11 @@ DetectedActions ActionDetection::fetchResults(const cv::Mat &in_ssd_local,
                 anchor_dims = add_conf_out[anchor_id].size;
             } else {
                 anchor_dims = add_conf_out[anchor_id + num_heads - 1].size;
-            }            
+            }
             anchor_height = new_network_ ? anchor_dims[2] : anchor_dims[1];
             anchor_width = new_network_ ? anchor_dims[3] : anchor_dims[2];
             std::size_t action_dimention_idx = new_network_ ? 1 : 3;
-            if (static_cast<unsigned int>(anchor_dims[action_dimention_idx]) != config_.num_action_classes) {
+            if (static_cast<size_t>(anchor_dims[action_dimention_idx]) != config_.num_action_classes) {
                 throw std::logic_error("The number of specified actions and the number of actions predicted by "
                     "the Person/Action Detection Retail model must match");
             }
@@ -91,7 +91,6 @@ DetectedActions ActionDetection::fetchResults(const cv::Mat &in_ssd_local,
     }
 
     num_candidates_ = head_shift;
-
     /** Parse detections **/
     return GetDetections(in_ssd_local, in_ssd_conf, in_ssd_priorbox, add_conf_out,
                          cv::Size(static_cast<int>(width_), static_cast<int>(height_)));
@@ -110,16 +109,16 @@ ActionDetection::ParseBBoxRecord(const float* data, bool inverse) const {
 inline ActionDetection::NormalizedBBox
 ActionDetection::GeneratePriorBox(int pos, int step, const cv::Size2f& anchor,
                                   const cv::Size& blob_size) const {
-    const float row = pos / blob_size.width;
-    const float col = pos % blob_size.width;
+    const float row = static_cast<float>(pos / blob_size.width);
+    const float col = static_cast<float>(pos % blob_size.width);
 
     const float center_x = (col + 0.5f) * static_cast<float>(step);
     const float center_y = (row + 0.5f) * static_cast<float>(step);
 
     NormalizedBBox bbox;
-    bbox.xmin = (center_x - 0.5f * anchor.width) / static_cast<float>(network_input_size_.width);
+    bbox.xmin = (center_x - 0.5f * anchor.width)  / static_cast<float>(network_input_size_.width);
     bbox.ymin = (center_y - 0.5f * anchor.height) / static_cast<float>(network_input_size_.height);
-    bbox.xmax = (center_x + 0.5f * anchor.width) / static_cast<float>(network_input_size_.width);
+    bbox.xmax = (center_x + 0.5f * anchor.width)  / static_cast<float>(network_input_size_.width);
     bbox.ymax = (center_y + 0.5f * anchor.height) / static_cast<float>(network_input_size_.height);
 
     return bbox;

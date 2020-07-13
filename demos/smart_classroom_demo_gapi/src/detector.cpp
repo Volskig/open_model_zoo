@@ -49,16 +49,6 @@ cv::Rect IncreaseRect(const cv::Rect& r, float coeff_x,
 }
 }  // namespace
 
-FaceDetection::FaceDetection(const DetectorConfig& config) : config_(config) {
-    // Config net: U8 NCHW 1 3 600 600 reshape
-    /*SizeVector input_dims = inputInfoFirst->getInputData()->getTensorDesc().getDims();
-    input_dims[2] = config_.input_h;
-    input_dims[3] = config_.input_w;
-    std::map<std::string, SizeVector> input_shapes;
-    input_shapes[inputInfo.begin()->first] = input_dims;
-    cnnNetwork.reshape(input_shapes);*/
-}
-
 DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const cv::Mat& frame) {
     const float* data = reinterpret_cast<float*>(in_ssd_result.data);
     DetectedObjects results;
@@ -98,8 +88,8 @@ DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const 
                                           config_.increase_scale_y),
                                           cv::Size(static_cast<int>(width_),
                                           static_cast<int>(height_)));
-        // TODO: reshape CNN input to remove this 0.25f
-        if (object.confidence > 0.25f/*config_.confidence_threshold*/ && object.rect.area() > 0) {
+        // NOTE: Needs implement imput reshape for default confidence_threshold
+        if (object.confidence > config_.confidence_threshold && object.rect.area() > 0) {
             results.emplace_back(object);
         }
     }

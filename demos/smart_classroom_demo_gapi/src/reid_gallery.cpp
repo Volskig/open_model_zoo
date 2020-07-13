@@ -34,51 +34,6 @@ namespace {
 const char EmbeddingsGallery::unknown_label[] = "Unknown";
 const int EmbeddingsGallery::unknown_id = TrackedObject::UNKNOWN_LABEL_IDX;
 
-RegistrationStatus EmbeddingsGallery::RegisterIdentity(const std::string& identity_label,
-                                                       const cv::Mat& image,
-                                                       int min_size_fr, bool crop_gallery,
-                                                       // detection::FaceDetection& detector,
-                                                       cv::Mat& embedding) {
-    cv::Mat target = image;
-    // TODO: needs implement crop_gallery flag functional (face-detection required)
-    /*if (crop_gallery) {
-      detector.enqueue(image);
-      detector.submitRequest();
-      detector.wait();
-      detection::DetectedObjects faces = detector.fetchResults();
-      if (faces.size() == 0) {
-        return RegistrationStatus::FAILURE_NOT_DETECTED;
-      }
-      cv::Mat face_roi = image(faces[0].rect);
-      target = face_roi;
-    }*/
-    // if ((target.rows < min_size_fr) && (target.cols < min_size_fr)) {
-    //   return RegistrationStatus::FAILURE_LOW_QUALITY;
-    // }
-    // cv::Mat landmarks;
-    // landmarks_det.Compute(target, &landmarks, cv::Size(2, 5));
-    // std::vector<cv::Mat> images = {target};
-    // std::vector<cv::Mat> landmarks_vec = {landmarks};
-    // AlignFaces(&images, &landmarks_vec);
-    // image_reid.Compute(images[0], &embedding);
-    return RegistrationStatus::SUCCESS;
-}
-
-EmbeddingsGallery::EmbeddingsGallery(const std::string& ids_list,
-                                     double threshold, int min_size_fr,
-                                     bool crop_gallery, const detection::DetectorConfig &detector_config,
-                                     const std::vector<GalleryObject> &identities_m,
-                                     const std::vector<int> &idx_to_id_m,
-                                     bool use_greedy_matcher)
-    : reid_threshold(threshold),
-      use_greedy_matcher(use_greedy_matcher) {
-    // TODO: needs implement crop_gallery flag functional 
-    // detection::FaceDetection detector(detector_config);
-
-    identities = identities_m;
-    idx_to_id = idx_to_id_m;
-}
-
 std::vector<int> EmbeddingsGallery::GetIDsByEmbeddings(const std::vector<cv::Mat>& embeddings) const {
     if (embeddings.empty() || idx_to_id.empty())
         return std::vector<int>(embeddings.size(), unknown_id);

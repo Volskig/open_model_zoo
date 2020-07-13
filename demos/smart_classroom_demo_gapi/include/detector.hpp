@@ -10,8 +10,6 @@
 
 #include <opencv2/core/core.hpp>
 
-// #include "cnn.hpp"
-
 namespace detection {
 
 struct DetectedObject {
@@ -25,7 +23,7 @@ struct DetectedObject {
 using DetectedObjects = std::vector<DetectedObject>;
 
 struct DetectorConfig {
-    bool model_exist = true;
+    bool model_exist = false;
     float confidence_threshold{0.6f};
     float increase_scale_x{1.15f};
     float increase_scale_y{1.15f};
@@ -42,14 +40,13 @@ private:
     float height_ = 0;
 
 public:
-    explicit FaceDetection(const DetectorConfig& config);
+    explicit FaceDetection(const DetectorConfig& config) : config_(config) {}        
 
     // How we print performance counts?
     // void printPerformanceCounts(const std::string &fullDeviceName) override {
     //     BaseCnnDetection::printPerformanceCounts(fullDeviceName);
     // }
 
-    // TODO: Remove or change this when implement cnn.h analog
     DetectedObjects fetchResults(const cv::Mat&, const cv::Mat&);
 };
 

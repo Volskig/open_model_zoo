@@ -33,11 +33,7 @@ class EmbeddingsGallery {
 public:
     static const char unknown_label[];
     static const int unknown_id;
-    EmbeddingsGallery(const std::string& ids_list,
-                      double threshold,
-                      int min_size_fr,
-                      bool crop_gallery,
-                      const detection::DetectorConfig &detector_config,
+    EmbeddingsGallery(double threshold,
                       const std::vector<GalleryObject> &identities_m,
                       const std::vector<int> &idx_to_id_m,
                       bool use_greedy_matcher=false) : reid_threshold(threshold),

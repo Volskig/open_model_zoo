@@ -10,7 +10,6 @@
 
 #include <opencv2/core/core.hpp>
 
-// #include "cnn.hpp"
 #include "detector.hpp"
 
 enum class RegistrationStatus {

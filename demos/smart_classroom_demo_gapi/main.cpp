@@ -1177,7 +1177,7 @@ int main(int argc, char* argv[]) {
         }
 
         // Create tracker for reid
-        TrackerParams tracker_reid_params;        
+        TrackerParams tracker_reid_params;
         tracker_reid_params.min_track_duration = 1;
         tracker_reid_params.forget_delay = 150;
         tracker_reid_params.affinity_thr = 0.8f;
@@ -1418,17 +1418,17 @@ int main(int argc, char* argv[]) {
                 for (size_t j = 0; j < tracked_faces.size(); j++) {
                     const auto& face = tracked_faces[j];
                     std::string face_label = face_labels[j];
-                
+
                     std::string label_to_draw;
                     if (face.label != EmbeddingsGallery::unknown_id)
                         label_to_draw += face_label;
-                
+
                     int person_ind = GetIndexOfTheNearestPerson(face, tracked_actions);
                     int action_ind = default_action_index;
                     if (person_ind >= 0) {
                         action_ind = tracked_actions[person_ind].label;
                     }
-                
+
                     if (actions_type == STUDENT) {
                         if (action_ind != default_action_index) {
                             label_to_draw += "[" + GetActionTextLabel(action_ind, actions_map) + "]";
@@ -1437,7 +1437,7 @@ int main(int argc, char* argv[]) {
                         sc_visualizer.DrawObject(face.rect, label_to_draw, red_color, white_color, true);
                         logger.AddFaceToFrame(face.rect, face_label, "");
                     }
-                
+
                     if ((actions_type == TEACHER) && (person_ind >= 0)) {
                         if (face_label == teacher_id) {
                             teacher_track_id = tracked_actions[person_ind].object_id;

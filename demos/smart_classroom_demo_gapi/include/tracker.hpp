@@ -4,7 +4,6 @@
 
 #pragma once
 
-// #include "cnn.hpp"
 #include <opencv2/core/core.hpp>
 #include <memory>
 #include <set>

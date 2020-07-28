@@ -22,13 +22,6 @@ namespace {
         return 1.0f - xy / norm;
     }
 
-    inline char separator() {
-        #ifdef _WIN32
-        return '\\';
-        #else
-        return '/';
-        #endif
-    }
 }  // namespace
 
 const char EmbeddingsGallery::unknown_label[] = "Unknown";

@@ -328,5 +328,18 @@ private:
     cv::Size frame_size_;
 };
 
+struct TrackerParamsPack {
+    TrackerParams tracker_reid_params;
+    TrackerParams tracker_action_params;
+};
+
+struct TrackersPack {
+    TrackersPack(TrackerParams tracker_reid_params
+        , TrackerParams tracker_action_params) : tracker_reid(Tracker(tracker_reid_params))
+        , tracker_action(Tracker(tracker_action_params)) {}
+    Tracker tracker_reid;
+    Tracker tracker_action;
+};
+
 int LabelWithMaxFrequencyInTrack(const Track &track, int window_size);
 std::vector<Track> UpdateTrackLabelsToBestAndFilterOutUnknowns(const std::vector<Track>& tracks);

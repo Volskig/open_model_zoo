@@ -24,35 +24,22 @@ bool SortScorePairDescend(const std::pair<float, T>& pair1,
 
 ActionDetection::ActionDetection(const ActionDetectorConfig& config)
         : config_(config) {    
-    new_network_ = config_.new_network;
-    // TODO: Network input size (needs to get it somewhere)
+    new_network_ = config_.net_with_six_actions;
+    // TODO: Hardcoded network input size (needs to get it somewhere)
     network_input_size_.height = 400;
     network_input_size_.width = 680;
     binary_task_ = config_.num_action_classes == 2;
 }
 
-DetectedActions ActionDetection::fetchResults(const cv::Mat &in_ssd_local,
-                                              const cv::Mat &in_ssd_conf,
-                                              const cv::Mat &in_ssd_priorbox,
-                                              const cv::Mat &in_ssd_anchor1,
-                                              const cv::Mat &in_ssd_anchor2,
-                                              const cv::Mat &in_ssd_anchor3,
-                                              const cv::Mat &in_ssd_anchor4,
-                                              const cv::Mat &in_frame) {
-    /** enqueue(...) functional **/
+DetectedActions ActionDetection::fetchResults( const std::vector<cv::Mat> &ssd_results
+                                             , const cv::Mat &in_frame) {
     width_ = static_cast<float>(in_frame.cols);
     height_ = static_cast<float>(in_frame.rows);
     /** Ancors list **/
     std::vector<cv::Mat> add_conf_out;
-    if (new_network_) {
-        add_conf_out.emplace_back(in_ssd_priorbox);
-    }
-    add_conf_out.emplace_back(in_ssd_anchor1);
-    add_conf_out.emplace_back(in_ssd_anchor2);
-    add_conf_out.emplace_back(in_ssd_anchor3);
-    add_conf_out.emplace_back(in_ssd_anchor4);
+    new_network_ ? add_conf_out.emplace_back(ssd_results.at(2))
+                 : add_conf_out.insert(add_conf_out.end(), ssd_results.begin() + 3, ssd_results.end());
 
-    /** Moved from old constructor **/
     const auto& head_anchors = new_network_ ? config_.new_anchors : config_.old_anchors;
     const int num_heads = head_anchors.size();
     head_ranges_.resize(num_heads + 1);
@@ -92,7 +79,7 @@ DetectedActions ActionDetection::fetchResults(const cv::Mat &in_ssd_local,
 
     num_candidates_ = head_shift;
     /** Parse detections **/
-    return GetDetections(in_ssd_local, in_ssd_conf, in_ssd_priorbox, add_conf_out,
+    return GetDetections(ssd_results.at(0), ssd_results.at(1), ssd_results.at(2), add_conf_out,
                          cv::Size(static_cast<int>(width_), static_cast<int>(height_)));
 }
 

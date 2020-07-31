@@ -54,7 +54,7 @@ using SSDHeads = std::vector<SSDHead>;
 */
 struct ActionDetectorConfig {
     /** @brief Person detection action recognition 0006 network enable flag */
-    bool new_network = false;
+    bool net_with_six_actions = false;
     /** @brief Scale paramter for Soft-NMS algorithm */
     float nms_sigma = 0.6f;
     /** @brief Threshold for detected objects */
@@ -89,15 +89,7 @@ class ActionDetection  {
 public:
     explicit ActionDetection(const ActionDetectorConfig& config);
 
-    DetectedActions fetchResults(const cv::Mat &in_ssd_local,
-                                 const cv::Mat &in_ssd_conf,
-                                 const cv::Mat &in_ssd_priorbox,
-                                 const cv::Mat &in_ssd_anchor1,
-                                 const cv::Mat &in_ssd_anchor2,
-                                 const cv::Mat &in_ssd_anchor3,
-                                 const cv::Mat &in_ssd_anchor4,
-                                 const cv::Mat &in_frame);
-
+    DetectedActions fetchResults(const std::vector<cv::Mat> &ssd_results, const cv::Mat &in_frame);
 private:
     ActionDetectorConfig config_;
     float width_ = 0;

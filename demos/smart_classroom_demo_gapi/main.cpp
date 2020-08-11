@@ -30,10 +30,10 @@
 #include <opencv2/gapi/infer.hpp>
 #include <opencv2/gapi/infer/ie.hpp>
 #include <opencv2/gapi/cpu/gcpukernel.hpp>
-#include <opencv2/gapi/streaming/cap.hpp>
 
 #include "custom_kernels.hpp"
 #include "kernel_packages.hpp"
+#include "stream_source.hpp"
 
 using namespace InferenceEngine;
 
@@ -473,29 +473,11 @@ namespace util {
         CV_Assert(!model_path.empty());
         return model_path.at(model_path.size() - 5) == '6';
     }
-    struct Avg {
-        struct Elapsed {
-            explicit Elapsed(double ms) : ss(ms / 1000.),
-                mm(static_cast<int>(std::lround(ss / 60))) {}
-            const double ss;
-            const int    mm;
-        };
-
-        using MS = std::chrono::duration<double, std::ratio<1, 1000>>;
-        using TS = std::chrono::time_point<std::chrono::high_resolution_clock>;
-        TS started;
-
-        void    start() { started = now(); }
-        TS      now() const { return std::chrono::high_resolution_clock::now(); }
-        double  tick() const { return std::chrono::duration_cast<MS>(now() - started).count(); }
-        Elapsed elapsed() const { return Elapsed{ tick() }; }
-        double  fps(std::size_t n) const { return static_cast<double>(n) / (tick() / 1000.); }
-    };
 } // namespace util
 
 template<> struct cv::detail::CompileArgTag<TrackerParamsPack> {
     static const char* tag() {
-        return "custom.get_recognize_result_state_params";
+        return "custom.get_recognition_result_state_params";
     }
 };
 
@@ -538,13 +520,13 @@ namespace custom {
     template<typename T> using tuple_five = std::tuple<T, T, T, T, T>;
     using RECInfo = rout< cv::GArray<TrackedObject>, cv::GArray<std::string>, cv::GArray<Track>>;
 
-    G_API_OP( GetRecognizeResult
+    G_API_OP( GetRecognitionResult
             , <RECInfo( cv::GArray<cv::GMat>
                       , cv::GArray<detection::DetectedObject>
                       , cv::GArray<DetectedAction>
                       , cv::GMat
                       , FaceRecognizerConfig)>
-            , "custom.get_recognize_result") {
+            , "custom.get_recognition_result") {
         static tuple_five <cv::GArrayDesc> outMeta( const cv::GArrayDesc &
                                                   , const cv::GArrayDesc &
                                                   , const cv::GArrayDesc &
@@ -558,7 +540,7 @@ namespace custom {
         }
     };
 
-    GAPI_OCV_KERNEL_ST(OCVGetRecognizeResult,  GetRecognizeResult, TrackersPack) {
+    GAPI_OCV_KERNEL_ST(OCVGetRecognitionResult,  GetRecognitionResult, TrackersPack) {
         static void setup( const cv::GArrayDesc &
                          , const cv::GArrayDesc &
                          , const cv::GArrayDesc &
@@ -913,12 +895,11 @@ int main(int argc, char* argv[]) {
         tracker_action_params.drop_forgotten_tracks = false;
         tracker_action_params.max_num_objects_in_track = std::numeric_limits<int>::max();
         tracker_action_params.objects_type = "action";
-
         cv::GComputation pp([&]() {
             cv::GMat in;
             cv::GMat frame = cv::gapi::copy(in);
             auto outs = GOut(frame);
-
+            
             cv::GArray<cv::GMat> embeddings;
             cv::GArray<detection::DetectedObject> faces;
             if (actions_type != TOP_K) {
@@ -945,7 +926,7 @@ int main(int argc, char* argv[]) {
                     }
                 } else {
                     faces = custom::GetEmptyFaces::on(in);
-                    embeddings = custom::GetEmptyMatGArray::on(in);
+                    embeddings =custom::GetEmptyMatGArray::on(in);
                 }
             }
 
@@ -993,11 +974,11 @@ int main(int argc, char* argv[]) {
                         , tracked_actions
                         , face_labels
                         , face_id_to_label_map
-                        , face_tracks) = custom::GetRecognizeResult::on( embeddings
-                                                                       , faces
-                                                                       , persons_with_actions
-                                                                       , in
-                                                                       , rec_config);
+                        , face_tracks) = custom::GetRecognitionResult::on( embeddings
+                                                                         , faces
+                                                                         , persons_with_actions
+                                                                         , in
+                                                                         , rec_config);
                 outs += GOut(tracked_actions, tracked_faces, face_labels, face_id_to_label_map, face_tracks);
             } else {
                 tracked_actions = custom::GetActionTopHandsDetectionResult::on(persons_with_actions, in);
@@ -1009,8 +990,8 @@ int main(int argc, char* argv[]) {
 
         cv::GStreamingCompiled cc;
         if (actions_type != TOP_K) {
-            cc = pp.compileStreaming(cv::compile_args(cv::gapi::combine( kp::video_process_kernels()
-                                                                       , cv::gapi::kernels<custom::OCVGetRecognizeResult>())
+            cc = pp.compileStreaming(cv::compile_args( cv::gapi::combine( kp::video_process_kernels()
+                                                                        , cv::gapi::kernels<custom::OCVGetRecognitionResult>())
                                                      , networks
                                                      , TrackerParamsPack{ tracker_reid_params
                                                                         , tracker_action_params }));
@@ -1023,14 +1004,18 @@ int main(int argc, char* argv[]) {
 
         cv::Mat frame;
 
+        float work_time_ms = 0.f;
+        float wait_time_ms = 0.f;
+        size_t wait_num_frames = 0;
+        bool monitoring_enabled = actions_type == TOP_K ? false : true;
+        const char SPACE_KEY = 32;
         const char ESC_KEY = 27;
-        // const char SPACE_KEY = 32;
         const cv::Scalar green_color(0, 255, 0);
         const cv::Scalar red_color(0, 0, 255);
         const cv::Scalar white_color(255, 255, 255);
-
         int teacher_track_id = -1;
-
+        cv::VideoCapture cap;
+        video_path != "cam" ? cap.open(video_path) : cap.open(0);
         cv::VideoWriter vid_writer;
         Visualizer sc_visualizer(!FLAGS_no_show, vid_writer, num_top_persons);
         DetectionsLogger logger(std::cout, FLAGS_r, FLAGS_ad, FLAGS_al);
@@ -1049,19 +1034,17 @@ int main(int argc, char* argv[]) {
         std::vector<std::map<int, int>> face_obj_id_to_action_maps;
         std::map<int, int> top_k_obj_ids;
 
-        // NOTE: 30 - hardcoded FPS (without cap.get(cv::CAP_PROP_FPS))
-        const int smooth_window_size = static_cast<int>(30 * FLAGS_d_ad);
-        const int smooth_min_length = static_cast<int>(30 * FLAGS_min_ad);
+        const int smooth_window_size = static_cast<int>(cap.get(cv::CAP_PROP_FPS) * FLAGS_d_ad);
+        const int smooth_min_length = static_cast<int>(cap.get(cv::CAP_PROP_FPS) * FLAGS_min_ad);
 
-        util::Avg avg;
+        cc.setSource(cv::gin(cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(cap)));
 
-        video_path != "cam" ? cc.setSource(cv::gin(cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(video_path)))
-                            : cc.setSource(cv::gin(cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(0)));
-
-        cc.start();
-        avg.start();
-        while (cc.running()) {
+        actions_type != TOP_K ? cc.start() : false;
+        
+        while (true) {
+            ++state::total_num_frames;
             logger.CreateNextFrameRecord(video_path, state::work_num_frames, frame.cols, frame.rows);
+            auto started = std::chrono::high_resolution_clock::now();
             char key = cv::waitKey(1);
             if (key == ESC_KEY) {
                 break;
@@ -1071,30 +1054,53 @@ int main(int argc, char* argv[]) {
             std::vector<std::string> face_labels;
             face_id_to_label_map.clear();
             face_tracks.clear();
-
             auto out_vector = cv::gout(frame, tracked_actions);
-            if (actions_type != TOP_K) {
+
+            if (actions_type == TOP_K) {
+                if (key == SPACE_KEY && !monitoring_enabled ||
+                    key == SPACE_KEY && monitoring_enabled) {
+                    monitoring_enabled = !monitoring_enabled;
+                    top_k_obj_ids.clear();
+                    sc_visualizer.ClearTopWindow();
+                }
+            } else {                
                 out_vector += cv::gout( tracked_faces, face_labels
-                                      , face_id_to_label_map, face_tracks);
+                                      , face_id_to_label_map, face_tracks);                
             }
 
-            if (!cc.pull(std::move(out_vector))) {
-                if (cv::waitKey(1) >= 0) break;
-                else continue;
+            if (monitoring_enabled) {
+                if (!cc.running()) {
+                    if (!cap.grab()) break;
+                    cc.setSource(cv::gin(cv::gapi::wip::make_src<cv::gapi::wip::GCaptureSource>(cap)));
+                    cc.start();                    
+                }
+                if (!cc.pull(std::move(out_vector))) {
+                    if (cv::waitKey(1) >= 0) break;
+                    else continue;
+                }
+                sc_visualizer.SetFrame(frame);
+            } else {
+                if (cc.running()) cc.stop();
+                if (!cap.read(frame)) break;
+                sc_visualizer.SetFrame(frame);
+                auto elapsed = std::chrono::high_resolution_clock::now() - started;
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+                wait_time_ms += elapsed_ms;
+                ++wait_num_frames;
+                sc_visualizer.DrawFPS(1e3f / (wait_time_ms / static_cast<float>(wait_num_frames) + 1e-6f),
+                                      green_color);
             }
-
             if (!FLAGS_out_v.empty() && !vid_writer.isOpened()) {
                 vid_writer = cv::VideoWriter( FLAGS_out_v
                                             , cv::VideoWriter::fourcc('M', 'J', 'P', 'G')
-                                            , 30
+                                            , cap.get(cv::CAP_PROP_FPS)
                                             , Visualizer::GetOutputSize(frame.size()));
             }
 
             presenter.handleKey(key);
             presenter.drawGraphs(frame);
-            sc_visualizer.SetFrame(frame);
 
-            if (actions_type == TOP_K) {
+            if (actions_type == TOP_K && monitoring_enabled) {
                 if (static_cast<int>(top_k_obj_ids.size()) < FLAGS_a_top) {
                     for (const auto& action : tracked_actions) {
                         if (action.label == top_action_id && top_k_obj_ids.count(action.object_id) == 0) {
@@ -1109,11 +1115,13 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
-                
-                avg.elapsed();
+                auto elapsed = std::chrono::high_resolution_clock::now() - started;
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+
+                work_time_ms += elapsed_ms;
                 ++state::work_num_frames;
-                
-                sc_visualizer.DrawFPS(static_cast<float>(avg.fps(state::work_num_frames)),
+
+                sc_visualizer.DrawFPS(1e3f / (work_time_ms / static_cast<float>(state::work_num_frames) + 1e-6f),
                                       red_color);
                 
                 for (const auto& action : tracked_actions) {
@@ -1127,8 +1135,13 @@ int main(int argc, char* argv[]) {
                 
                     sc_visualizer.DrawObject(action.rect, box_caption, white_color, box_color, true);
                 }
-            } else {
+            } else if (actions_type != TOP_K) {
                 std::map<int, int> frame_face_obj_id_to_action;
+                auto elapsed = std::chrono::high_resolution_clock::now() - started;
+                auto elapsed_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+
+                work_time_ms += elapsed_ms;
                 for (size_t j = 0; j < tracked_faces.size(); j++) {
                     const auto& face = tracked_faces[j];
                     std::string face_label = face_labels[j];
@@ -1182,13 +1195,10 @@ int main(int argc, char* argv[]) {
                         logger.AddPersonToFrame(tracker_action.rect, action_label, teacher_id);
                     }
                 }
-                avg.elapsed();
-                sc_visualizer.DrawFPS(static_cast<float>(avg.fps(state::work_num_frames)),
-                                      red_color);
+                sc_visualizer.DrawFPS(1e3f / (work_time_ms / static_cast<float>(state::work_num_frames) + 1e-6f),
+                    red_color);
                 ++state::work_num_frames;
             }
-
-            ++state::total_num_frames;
 
             sc_visualizer.Show();
 
@@ -1202,8 +1212,8 @@ int main(int argc, char* argv[]) {
 
         slog::info << slog::endl;
         if (state::work_num_frames > 0) {
-            slog::info << "Mean FPS: " << static_cast<float>(state::work_num_frames) /
-                                          static_cast<float>(avg.elapsed().ss) << slog::endl;
+            const float mean_time_ms = work_time_ms / static_cast<float>(state::work_num_frames);
+            slog::info << "Mean FPS: " << 1e3f / mean_time_ms << slog::endl;
         }
         slog::info << "Frames processed: " << state::total_num_frames << slog::endl;
 

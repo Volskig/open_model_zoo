@@ -44,4 +44,8 @@ public:
     DetectedObjects fetchResults(const cv::Mat&, const cv::Mat&);
 };
 
+struct FaceDetectionKernelInput {
+    std::shared_ptr<detection::FaceDetection> ptr;
+};
+
 }  // namespace detection

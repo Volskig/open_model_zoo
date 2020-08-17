@@ -48,7 +48,6 @@ struct SSDHead {
     SSDHead(int step, const std::vector<cv::Size2f>& anchors) : step(step), anchors(anchors) {}
 };
 using SSDHeads = std::vector<SSDHead>;
-
 /**
 * @brief Config for the Action Detection model
 */
@@ -83,7 +82,6 @@ struct ActionDetectorConfig {
                                  {63.31491832f, 142.595732f},
                                  {93.5070856f, 201.107692f}}}};
 };
-
 
 class ActionDetection  {
 public:
@@ -179,4 +177,8 @@ private:
                                const int top_k,
                                const float min_det_conf,
                                std::vector<int>* out_indices) const;
+};
+
+struct ActionDetectionKernelInput {
+    std::shared_ptr<ActionDetection> ptr;
 };

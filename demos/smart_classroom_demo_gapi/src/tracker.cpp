@@ -482,17 +482,6 @@ bool Tracker::IsTrackForgotten(size_t id) const {
     return tracks_.at(id).lost > params_.forget_delay;
 }
 
-void Tracker::Reset() {
-    active_track_ids_.clear();
-    tracks_.clear();
-
-    detections_.clear();
-
-    tracks_counter_ = 0;
-
-    frame_size_ = cv::Size();
-}
-
 TrackedObjects Tracker::TrackedDetections() const {
     TrackedObjects detections;
     for (size_t idx : active_track_ids()) {

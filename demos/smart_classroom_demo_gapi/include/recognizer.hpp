@@ -11,7 +11,6 @@ struct FaceRecognizerConfig {
     std::vector<GalleryObject> identities;
     std::vector<int> idx_to_id;
     bool greedy_reid_matching;
-    bool reid_realizable = false;
     double actions_type;
 };
 
@@ -23,7 +22,7 @@ public:
     virtual std::string GetLabelByID(int id) const = 0;
     virtual std::vector<std::string> GetIDToLabelMap() const = 0;
 
-    virtual std::vector<int> Recognize(const std::vector<cv::Mat> &,
+    virtual std::vector<int> Recognize(std::vector<cv::Mat> &,
         const detection::DetectedObjects &) = 0;
 };
 
@@ -37,7 +36,7 @@ public:
 
     std::vector<std::string> GetIDToLabelMap() const override { return {}; }
 
-    std::vector<int> Recognize(const std::vector<cv::Mat>& embeddings,
+    std::vector<int> Recognize(std::vector<cv::Mat>& embeddings,
         const detection::DetectedObjects& faces) override {
         return std::vector<int>(faces.size(), EmbeddingsGallery::unknown_id);
     }
@@ -63,11 +62,19 @@ public:
         return face_gallery.GetIDToLabelMap();
     }
 
-    std::vector<int> Recognize(const std::vector<cv::Mat>& embeddings,
+    std::vector<int> Recognize(std::vector<cv::Mat>& embeddings,
         const detection::DetectedObjects& faces) override {
+        for (auto & emb : embeddings) {
+            emb = emb.reshape(1, { emb.size().width, 1 });
+        }
         return face_gallery.GetIDsByEmbeddings(embeddings);
     }
 
 private:
     EmbeddingsGallery face_gallery;
+};
+
+struct FaceRecognizerKernelInput {
+    std::shared_ptr<FaceRecognizer> ptr;
+    double actions_type = 0;
 };

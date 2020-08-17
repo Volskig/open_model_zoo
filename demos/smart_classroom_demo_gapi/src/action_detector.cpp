@@ -165,11 +165,9 @@ DetectedActions ActionDetection::GetDetections(const cv::Mat& loc, const cv::Mat
 
         /** Estimate the action head ID **/
         int head_id = 0;
-
         while (p >= head_ranges_[head_id + 1]) {
             ++head_id;
         }
-
         const int head_p = p - head_ranges_[head_id];
 
         /** Estimate the action anchor ID **/

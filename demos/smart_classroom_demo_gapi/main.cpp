@@ -1065,23 +1065,19 @@ int main(int argc, char* argv[]) {
                 std::map<int, FrameEventsTrack> face_obj_id_to_actions_track;
                 ConvertActionMapsToFrameEventTracks(face_obj_id_to_action_maps, default_action_index,
                                                     &face_obj_id_to_actions_track);
-        
                 const int start_frame = 0;
                 const int end_frame = face_obj_id_to_action_maps.size();
                 std::map<int, RangeEventsTrack> face_obj_id_to_events;
                 SmoothTracks(face_obj_id_to_actions_track, start_frame, end_frame,
                              smooth_window_size, smooth_min_length, default_action_index,
                              &face_obj_id_to_events);
-        
                 slog::info << "Final ID->events mapping" << slog::endl;
                 logger.DumpTracks(face_obj_id_to_events,
                                   actions_map, face_track_id_to_label,
                                   face_id_to_label_map);
-        
                 std::vector<std::map<int, int>> face_obj_id_to_smoothed_action_maps;
                 ConvertRangeEventsTracksToActionMaps(end_frame, face_obj_id_to_events,
                                                      &face_obj_id_to_smoothed_action_maps);
-        
                 slog::info << "Final per-frame ID->action mapping" << slog::endl;
                 logger.DumpDetections(video_path, frame.size(), state::work_num_frames,
                                       new_face_tracks,

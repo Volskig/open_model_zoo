@@ -15,13 +15,6 @@ class GCaptureSource : public IStreamSource
 public:
     explicit GCaptureSource(const cv::VideoCapture& cap) : cap(cap) { prep(); }
 
-    bool get_frame(cv::Mat& clear_frame) {
-        if (!cap.read(clear_frame)) {
-            return false;
-        }
-        return true;
-    }
-
 protected:
     cv::VideoCapture cap;
     cv::Mat first;
@@ -31,7 +24,7 @@ protected:
         GAPI_Assert(first.empty());
         cv::Mat tmp;
         if (!cap.read(tmp)) {
-            GAPI_Assert(false && "Couldn't grab the very first frame");
+            GAPI_Assert(false && "Couldn't grab the frame");
         }
         first = tmp.clone();
     }

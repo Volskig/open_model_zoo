@@ -28,10 +28,9 @@
 #include <opencv2/gapi/fluid/core.hpp>
 #include <opencv2/gapi/infer.hpp>
 #include <opencv2/gapi/infer/ie.hpp>
-#include <opencv2/gapi/cpu/gcpukernel.hpp>
-#include <opencv2/gapi/util/any.hpp>
 
 #include "custom_kernels.hpp"
+#include "actions.hpp"
 #include "stream_source.hpp"
 #include "kernel_packages.hpp"
 
@@ -479,17 +478,13 @@ namespace util {
     }
 } // namespace util
 
-namespace custom {
-    /** NETS */
+namespace nets {
     G_API_NET(FaceDetector, <cv::GMat(cv::GMat)>, "face-detector");
     G_API_NET(LandmarksDetector, <cv::GMat(cv::GMat)>, "landmarks-detector");
-    G_API_NET( FaceReidentificator, <cv::GMat(cv::GMat)>
-             , "face-reidentificator");
-    using PAInfo = std::tuple<cv::GMat, cv::GMat, cv::GMat, cv::GMat,
-                              cv::GMat, cv::GMat, cv::GMat>;
-    G_API_NET( PersonDetActionRec, <PAInfo(cv::GMat)>
-             , "person-detection-action-recognition");  
-} // namespace custom
+    G_API_NET(FaceReidentificator, <cv::GMat(cv::GMat)>, "face-reidentificator");
+    using PAInfo = std::tuple<cv::GMat, cv::GMat, cv::GMat, cv::GMat, cv::GMat, cv::GMat, cv::GMat>;
+    G_API_NET(PersonDetActionRec, <PAInfo(cv::GMat)>, "person-detection-action-recognition");  
+} // namespace nets
 
 int main(int argc, char* argv[]) {
     try {
@@ -546,7 +541,6 @@ int main(int argc, char* argv[]) {
                 continue;
 
             std::cout << ie.GetVersions(device) << std::endl;
-
             /** Load extensions for the CPU device **/
             if ((device.find("CPU") != std::string::npos)) {
                 if (!FLAGS_l.empty()) {
@@ -572,10 +566,10 @@ int main(int argc, char* argv[]) {
         /** NOTE: Empty strings. Need default constructor for cv::gapi::ie::Params
           * error msg: no appropriate default constructor
           */
-        cv::gapi::ie::Params<custom::FaceDetector> det_net({}, {}, {});
-        cv::gapi::ie::Params<custom::LandmarksDetector> landm_net({}, {}, {});
-        cv::gapi::ie::Params<custom::FaceReidentificator> reident_net({}, {}, {});
-        cv::gapi::ie::Params<custom::PersonDetActionRec> action_net({}, {}, {});
+        cv::gapi::ie::Params<nets::FaceDetector> det_net({}, {}, {});
+        cv::gapi::ie::Params<nets::LandmarksDetector> landm_net({}, {}, {});
+        cv::gapi::ie::Params<nets::FaceReidentificator> reident_net({}, {}, {});
+        cv::gapi::ie::Params<nets::PersonDetActionRec> action_net({}, {}, {});
 
         ActionDetectorConfig action_config;
         ActionDetectionKernelInput ad_kernel_input;
@@ -601,7 +595,7 @@ int main(int argc, char* argv[]) {
                                                                     "ActionNet/action_heads/out_head_2_anchor_2",
                                                                     "ActionNet/action_heads/out_head_2_anchor_3",
                                                                     "ActionNet/action_heads/out_head_2_anchor_4"};
-            action_net = cv::gapi::ie::Params<custom::PersonDetActionRec>{
+            action_net = cv::gapi::ie::Params<nets::PersonDetActionRec>{
                 ad_model_path,
                 util::GetBinPath(ad_model_path),
                 FLAGS_d_act,
@@ -618,7 +612,7 @@ int main(int argc, char* argv[]) {
             face_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
             face_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
             fd_kernel_input.ptr.reset(new detection::FaceDetection(face_config));
-            det_net = cv::gapi::ie::Params<custom::FaceDetector>{
+            det_net = cv::gapi::ie::Params<nets::FaceDetector>{
                 fd_model_path,
                 util::GetBinPath(fd_model_path),
                 FLAGS_d_fd,
@@ -635,13 +629,13 @@ int main(int argc, char* argv[]) {
             face_registration_det_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
             reid_kernel_input.ptr.reset(new detection::FaceDetection(face_config));
 
-            landm_net = cv::gapi::ie::Params<custom::LandmarksDetector>{
+            landm_net = cv::gapi::ie::Params<nets::LandmarksDetector>{
                 lm_model_path,
                 util::GetBinPath(lm_model_path),
                 FLAGS_d_lm,
             };
 
-            reident_net = cv::gapi::ie::Params<custom::FaceReidentificator>{
+            reident_net = cv::gapi::ie::Params<nets::FaceReidentificator>{
                 fr_model_path,
                 util::GetBinPath(fr_model_path),
                 FLAGS_d_reid,
@@ -656,7 +650,7 @@ int main(int argc, char* argv[]) {
 
                     if (FLAGS_crop_gallery) {
                         cv::GMat detections =
-                            cv::gapi::infer<custom::FaceDetector>(in);
+                            cv::gapi::infer<nets::FaceDetector>(in);
 
                         cv::GArray<detection::DetectedObject> faces =
                             custom::FaceDetectorPostProc::on( in
@@ -668,12 +662,12 @@ int main(int argc, char* argv[]) {
                         rects = custom::GetRectFromImage::on(in);
                     }
                     cv::GArray<cv::GMat> landmarks =
-                        cv::gapi::infer<custom::LandmarksDetector>(rects, in);
+                        cv::gapi::infer<nets::LandmarksDetector>(rects, in);
 
                     cv::GMat align_face =
                         custom::AlignFacesForReidentification::on(in, landmarks, rects);
 
-                    cv::GMat embeddings = cv::gapi::infer<custom::FaceReidentificator>(align_face);
+                    cv::GMat embeddings = cv::gapi::infer<nets::FaceReidentificator>(align_face);
                     return cv::GComputation(cv::GIn(in), cv::GOut(rects, embeddings));
                 });
 
@@ -682,43 +676,35 @@ int main(int argc, char* argv[]) {
                 cv::FileStorage fs(ids_list, cv::FileStorage::Mode::READ);
                 cv::FileNode fn = fs.root();
                 int id = 0;
-                for (cv::FileNodeIterator fit = fn.begin(); fit != fn.end(); ++fit) {
-                    cv::FileNode item = *fit;
+                for (const auto& item : fn) {
                     std::string label = item.name();
                     std::vector<cv::Mat> embeddings;
-            
                     // Please, note that the case when there are more than one image in gallery
                     // for a person might not work properly with the current implementation
                     // of the demo.
                     // Remove this assert by your own risk.
                     CV_Assert(item.size() == 1);
             
-                    for (size_t i = 0; i < item.size(); i++) {
-                        std::string path;
-                        if (file_exists(item[i].string())) {
-                            path = item[i].string();
+                    for (const auto& item_e : item) {
+                        cv::Mat image, emb;
+                        if (file_exists(item_e.string())) {
+                            image = cv::imread(item_e.string());
                         }
                         else {
-                            path = folder_name(ids_list) + separator() + item[i].string();
+                            image = cv::imread(folder_name(ids_list) + separator() + item_e.string());
                         }
-            
-                        cv::Mat image = cv::imread(path);
                         CV_Assert(!image.empty());
-                        cv::Mat emb;
                         std::vector<cv::Rect> rects;
                         gallery_pp.apply(cv::gin(image), cv::gout(rects, emb),
                                          cv::compile_args(kp::gallery_kernels(), gallery_networks));
-                        emb = emb.reshape(1, { emb.size().width, 1 });
-
                         // NOTE: RegistrationStatus analog check
                         if (!rects.empty() &&
                             !(rects.size() > 1) &&
                             (rects[0].width > FLAGS_min_size_fr) &&
                             (rects[0].height > FLAGS_min_size_fr)) {
-                            embeddings.push_back(emb);
-                            idx_to_id.push_back(id);
-                            identities.emplace_back(embeddings, label, id);
-                            ++id;
+                            embeddings.emplace_back(emb.reshape(1, { emb.size().width, 1 }));
+                            idx_to_id.emplace_back(id);
+                            identities.emplace_back(embeddings, label, id++);
                         }
                     }
                 }
@@ -730,15 +716,19 @@ int main(int argc, char* argv[]) {
             rec_config.identities = identities;
             rec_config.idx_to_id = idx_to_id;
             rec_config.greedy_reid_matching = FLAGS_greedy_reid_matching;
-            rec_kernel_input.ptr.reset(new FaceRecognizerDefault(rec_config));
-            rec_kernel_input.actions_type = actions_type;
         } else {
-            rec_kernel_input.ptr.reset(new FaceRecognizerNull);
             slog::warn << "Face recognition models are disabled!" << slog::endl;
             if (actions_type == TEACHER) {
                 slog::err << "Face recognition must be enabled to recognize teacher actions." << slog::endl;
                 return 1;
             }
+        }
+        rec_kernel_input.ptr.reset(new FaceRecognizer(rec_config));
+        rec_kernel_input.actions_type = actions_type;
+
+        if (actions_type == TEACHER && !rec_kernel_input.ptr->LabelExists(teacher_id)) {
+            slog::err << "Teacher id does not exist in the gallery!" << slog::endl;
+            return 1;
         }
 
         // Create tracker for reid
@@ -776,7 +766,7 @@ int main(int argc, char* argv[]) {
             if (actions_type != TOP_K) {
                 if (!fd_model_path.empty()) {
                     cv::GMat detections =
-                        cv::gapi::infer<custom::FaceDetector>(in);
+                        cv::gapi::infer<nets::FaceDetector>(in);
                     faces = custom::FaceDetectorPostProc::on( in
                                                             , detections
                                                             , fd_kernel_input);
@@ -786,12 +776,12 @@ int main(int argc, char* argv[]) {
                             custom::GetRectsFromDetections::on(faces);
 
                         cv::GArray<cv::GMat> landmarks =
-                            cv::gapi::infer<custom::LandmarksDetector>(rects, in);
+                            cv::gapi::infer<nets::LandmarksDetector>(rects, in);
 
                         cv::GMat align_faces =
                             custom::AlignFacesForReidentification::on(in, landmarks, rects);
 
-                        embeddings = cv::gapi::infer<custom::FaceReidentificator>(rects, align_faces);
+                        embeddings = cv::gapi::infer<nets::FaceReidentificator>(rects, align_faces);
                     } else {
                         embeddings = custom::GetEmptyMatGArray::on(in);
                     }
@@ -812,7 +802,7 @@ int main(int argc, char* argv[]) {
                         , action_con1
                         , action_con2
                         , action_con3
-                        , action_con4) = cv::gapi::infer<custom::PersonDetActionRec>(in);
+                        , action_con4) = cv::gapi::infer<nets::PersonDetActionRec>(in);
 
                 persons_with_actions =
                     custom::PersonDetActionRecPostProc::on( in
@@ -877,7 +867,7 @@ int main(int argc, char* argv[]) {
         cv::VideoCapture cap;
         video_path != "cam" ? cap.open(video_path) : cap.open(0);
         if (!cap.read(frame)) {
-            GAPI_Assert(false && "Couldn't grab the first frame");
+            GAPI_Assert(false && "Couldn't grab the very first frame");
         }
         cv::VideoWriter vid_writer;
         if (!FLAGS_out_v.empty() && !vid_writer.isOpened()) {
@@ -954,10 +944,8 @@ int main(int argc, char* argv[]) {
                 if (cc.running()) cc.stop();
                 if (!cap.read(frame)) break;
                 auto elapsed = std::chrono::high_resolution_clock::now() - started;
-                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-                wait_time_ms += elapsed_ms;
-                ++wait_num_frames;
-                sc_visualizer.DrawFPS(1e3f / (wait_time_ms / static_cast<float>(wait_num_frames) + 1e-6f),
+                wait_time_ms += std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+                sc_visualizer.DrawFPS(1e3f / (wait_time_ms / static_cast<float>(++wait_num_frames) + 1e-6f),
                                       green_color);
             }
 
@@ -977,12 +965,8 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 auto elapsed = std::chrono::high_resolution_clock::now() - started;
-                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-
-                work_time_ms += elapsed_ms;
-                ++state::work_num_frames;
-
-                sc_visualizer.DrawFPS(1e3f / (work_time_ms / static_cast<float>(state::work_num_frames) + 1e-6f),
+                work_time_ms += std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+                sc_visualizer.DrawFPS(1e3f / (work_time_ms / static_cast<float>(++state::work_num_frames) + 1e-6f),
                                       red_color);
                 
                 for (const auto& action : tracked_actions) {
@@ -999,13 +983,10 @@ int main(int argc, char* argv[]) {
             } else if (actions_type != TOP_K) {
                 std::map<int, int> frame_face_obj_id_to_action;
                 auto elapsed = std::chrono::high_resolution_clock::now() - started;
-                auto elapsed_ms =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-
-                work_time_ms += elapsed_ms;
-                for (size_t j = 0; j < tracked_faces.size(); ++j) {
-                    const auto& face = tracked_faces[j];
-                    std::string face_label = face_labels.at(j);
+                work_time_ms += std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+                size_t labels_step = 0;
+                for (const auto& face : tracked_faces) {
+                    std::string face_label = face_labels.at(labels_step++);
 
                     std::string label_to_draw;
                     if (face.label != EmbeddingsGallery::unknown_id)
@@ -1056,15 +1037,12 @@ int main(int argc, char* argv[]) {
                         logger.AddPersonToFrame(tracker_action.rect, action_label, teacher_id);
                     }
                 }
-                sc_visualizer.DrawFPS(1e3f / (work_time_ms / static_cast<float>(state::work_num_frames) + 1e-6f),
+                sc_visualizer.DrawFPS(1e3f / (work_time_ms / static_cast<float>(state::work_num_frames++) + 1e-6f),
                     red_color);
-                ++state::work_num_frames;
             }
-
             sc_visualizer.Show();
 
             if (FLAGS_last_frame >= 0 && state::work_num_frames > static_cast<size_t>(FLAGS_last_frame)) {
-                cc.stop();
                 break;
             }
             logger.FinalizeFrameRecord();

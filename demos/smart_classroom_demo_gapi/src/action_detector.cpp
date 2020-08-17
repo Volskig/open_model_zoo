@@ -16,12 +16,6 @@
 #define POSITIVE_DETECTION_IDX 1
 #define INVALID_TOP_K_IDX -1
 
-template <typename T>
-bool SortScorePairDescend(const std::pair<float, T>& pair1,
-                          const std::pair<float, T>& pair2) {
-    return pair1.first > pair2.first;
-}
-
 ActionDetection::ActionDetection(const ActionDetectorConfig& config)
         : config_(config) {    
     new_network_ = config_.net_with_six_actions;

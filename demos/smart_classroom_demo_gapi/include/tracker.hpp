@@ -195,30 +195,6 @@ public:
                  int frame_idx);
 
     ///
-    /// \brief Pipeline parameters getter.
-    /// \return Parameters of pipeline.
-    ///
-    const TrackerParams &params() const;
-
-    ///
-    /// \brief Pipeline parameters setter.
-    /// \param[in] params Parameters of pipeline.
-    ///
-    void set_params(const TrackerParams &params);
-
-    ///
-    /// \brief Returns recently detected objects.
-    /// \return recently detected objects.
-    ///
-    const TrackedObjects &detections() const;
-
-    ///
-    /// \brief Get active tracks to draw
-    /// \return Active tracks.
-    ///
-    std::unordered_map<size_t, std::vector<cv::Point>> GetActiveTracks() const;
-
-    ///
     /// \brief Get tracked detections.
     /// \return Tracked detections.
     ///
@@ -281,9 +257,6 @@ private:
                                     const TrackedObjects &detections,
                                     cv::Mat *dissimilarity_matrix);
 
-    std::vector<std::pair<size_t, size_t>> GetTrackToDetectionIds(
-            const std::set<std::tuple<size_t, size_t, float>> &matches);
-
     float Distance(const TrackedObject &obj1, const TrackedObject &obj2);
 
     void AddNewTrack(const TrackedObject &detection);
@@ -302,8 +275,6 @@ private:
     bool UptateLostTrackAndEraseIfItsNeeded(size_t track_id);
 
     void UpdateLostTracks(const std::set<size_t> &track_ids);
-
-    std::unordered_map<size_t, std::vector<cv::Point>> GetActiveTracks();
 
     // Parameters of the pipeline.
     TrackerParams params_;

@@ -11,59 +11,33 @@ struct FaceRecognizerConfig {
     std::vector<GalleryObject> identities;
     std::vector<int> idx_to_id;
     bool greedy_reid_matching;
-    double actions_type;
 };
 
 class FaceRecognizer {
 public:
-    virtual ~FaceRecognizer() = default;
-
-    virtual bool LabelExists(const std::string &label) const = 0;
-    virtual std::string GetLabelByID(int id) const = 0;
-    virtual std::vector<std::string> GetIDToLabelMap() const = 0;
-
-    virtual std::vector<int> Recognize(std::vector<cv::Mat> &,
-        const detection::DetectedObjects &) = 0;
-};
-
-class FaceRecognizerNull : public FaceRecognizer {
-public:
-    bool LabelExists(const std::string &) const override { return false; }
-
-    std::string GetLabelByID(int) const override {
-        return EmbeddingsGallery::unknown_label;
-    }
-
-    std::vector<std::string> GetIDToLabelMap() const override { return {}; }
-
-    std::vector<int> Recognize(std::vector<cv::Mat>& embeddings,
-        const detection::DetectedObjects& faces) override {
-        return std::vector<int>(faces.size(), EmbeddingsGallery::unknown_id);
-    }
-};
-
-class FaceRecognizerDefault : public FaceRecognizer {
-public:
-    FaceRecognizerDefault(FaceRecognizerConfig config)
+    FaceRecognizer(FaceRecognizerConfig config)
         : face_gallery(config.reid_threshold,
-            config.identities,
-            config.idx_to_id,
-            config.greedy_reid_matching) {}
+                       config.identities,
+                       config.idx_to_id,
+                       config.greedy_reid_matching) {}
 
-    bool LabelExists(const std::string &label) const override {
+    bool LabelExists(const std::string &label) const {
         return face_gallery.LabelExists(label);
     }
 
-    std::string GetLabelByID(int id) const override {
+    std::string GetLabelByID(int id) const {
         return face_gallery.GetLabelByID(id);
     }
 
-    std::vector<std::string> GetIDToLabelMap() const override {
+    std::vector<std::string> GetIDToLabelMap() const {
         return face_gallery.GetIDToLabelMap();
     }
 
     std::vector<int> Recognize(std::vector<cv::Mat>& embeddings,
-        const detection::DetectedObjects& faces) override {
+        const detection::DetectedObjects& faces) {
+        if (embeddings.empty()) {
+            return std::vector<int>(faces.size(), EmbeddingsGallery::unknown_id);
+        }
         for (auto & emb : embeddings) {
             emb = emb.reshape(1, { emb.size().width, 1 });
         }

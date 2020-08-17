@@ -4,7 +4,6 @@
 #include "kernel_packages.hpp"
 #include "custom_kernels.hpp"
 
-/** OCV KERNELs */
 GAPI_OCV_KERNEL(OCVFaceDetectorPostProc, custom::FaceDetectorPostProc) {
     static void run( const cv::Mat &in_frame
                    , const cv::Mat &in_ssd_result
@@ -181,18 +180,18 @@ cv::gapi::GKernelPackage kp::gallery_kernels() {
 }
 
 cv::gapi::GKernelPackage kp::video_process_kernels() {
-    return cv::gapi::kernels < OCVFaceDetectorPostProc
-                             , OCVGetRectsFromDetections
-                             , OCVPersonDetActionRecPostProc
-                             , OCVAlignFacesForReidentification
-                             , OCVGetRecognitionResult
-                             , OCVGetEmptyFaces
-                             , OCVGetEmptyActions
-                             , OCVGetEmptyMatGArray>();
+    return cv::gapi::kernels< OCVFaceDetectorPostProc
+                            , OCVGetRectsFromDetections
+                            , OCVPersonDetActionRecPostProc
+                            , OCVAlignFacesForReidentification
+                            , OCVGetRecognitionResult
+                            , OCVGetEmptyFaces
+                            , OCVGetEmptyActions
+                            , OCVGetEmptyMatGArray>();
 }
 
 cv::gapi::GKernelPackage kp::top_k_kernels() {
-    return cv::gapi::kernels < OCVPersonDetActionRecPostProc
-                             , OCVGetActionTopHandsDetectionResult
-                             , OCVGetEmptyActions>();
+    return cv::gapi::kernels< OCVPersonDetActionRecPostProc
+                            , OCVGetActionTopHandsDetectionResult
+                            , OCVGetEmptyActions>();
 }

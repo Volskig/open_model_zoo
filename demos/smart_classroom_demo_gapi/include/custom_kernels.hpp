@@ -5,11 +5,9 @@
 #pragma once
 
 #include "action_detector.hpp"
-#include "detector.hpp"
 #include "face_reid.hpp"
 #include "recognizer.hpp"
 #include "tracker.hpp"
-#include "actions.hpp"
 
 #include <opencv2/gapi/cpu/gcpukernel.hpp>
 
@@ -34,7 +32,6 @@ template<> struct cv::detail::CompileArgTag<TrackerParamsPack> {
 };
 
 namespace custom {
-    /** OPs */
     G_API_OP( FaceDetectorPostProc
             , <cv::GArray<detection::DetectedObject>( cv::GMat
                                                     , cv::GMat

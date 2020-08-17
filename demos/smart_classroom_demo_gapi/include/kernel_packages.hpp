@@ -8,6 +8,5 @@
 namespace kp {
     cv::gapi::GKernelPackage gallery_kernels();
     cv::gapi::GKernelPackage video_process_kernels();
-    cv::gapi::GKernelPackage video_process_kernel_st();
     cv::gapi::GKernelPackage top_k_kernels();
 } //namespace kp

@@ -29,11 +29,13 @@ DetectedActions ActionDetection::fetchResults( const std::vector<cv::Mat> &ssd_r
                                              , const cv::Mat &in_frame) {
     width_ = static_cast<float>(in_frame.cols);
     height_ = static_cast<float>(in_frame.rows);
-    /** Ancors list **/
+    /** Anchors list **/
     std::vector<cv::Mat> add_conf_out;
-    new_network_ ? add_conf_out.emplace_back(ssd_results.at(2))
-                 : add_conf_out.insert(add_conf_out.end(), ssd_results.begin() + 3, ssd_results.end());
-
+    if(new_network_) {
+        add_conf_out.emplace_back(ssd_results.at(2));
+    } else {
+        add_conf_out.insert(add_conf_out.end(), ssd_results.begin() + 3, ssd_results.end());
+    }
     const auto& head_anchors = new_network_ ? config_.new_anchors : config_.old_anchors;
     const int num_heads = head_anchors.size();
     head_ranges_.resize(num_heads + 1);

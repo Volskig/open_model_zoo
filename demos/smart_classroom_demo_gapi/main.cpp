@@ -486,7 +486,7 @@ namespace nets {
     G_API_NET(PersonDetActionRec, <PAInfo(cv::GMat)>, "person-detection-action-recognition");  
 } // namespace nets
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) { 
     try {
         /** This demo covers 4 certain topologies and cannot be generalized **/
         slog::info << "InferenceEngine: " << GetInferenceEngineVersion() << slog::endl;
@@ -702,7 +702,7 @@ int main(int argc, char* argv[]) {
                             !(rects.size() > 1) &&
                             (rects[0].width > FLAGS_min_size_fr) &&
                             (rects[0].height > FLAGS_min_size_fr)) {
-                            embeddings.emplace_back(emb.reshape(1, { emb.size().width, 1 }));
+                            embeddings.emplace_back(emb.reshape(1, { 256, 1 }));
                             idx_to_id.emplace_back(id);
                             identities.emplace_back(embeddings, label, id++);
                         }
@@ -919,8 +919,8 @@ int main(int argc, char* argv[]) {
             auto out_vector = cv::gout(frame, tracked_actions);
 
             if (actions_type == TOP_K) {
-                if (key == SPACE_KEY && !monitoring_enabled ||
-                    key == SPACE_KEY && monitoring_enabled) {
+                if ((key == SPACE_KEY && !monitoring_enabled) ||
+                    (key == SPACE_KEY && monitoring_enabled)) {
                     monitoring_enabled = !monitoring_enabled;
                     top_k_obj_ids.clear();
                     sc_visualizer.ClearTopWindow();

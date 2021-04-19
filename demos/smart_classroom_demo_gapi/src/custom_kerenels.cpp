@@ -62,7 +62,7 @@ GAPI_OCV_KERNEL(OCVAlignFacesForReidentification,
                           std::vector<cv::Mat> &out_images) {
         cv::Mat out_image;
         in.copyTo(out_image);
-        // out_images.clear();
+        out_images.clear();
         for (const auto& rect : face_rois) {
             out_images.emplace_back(out_image(rect));
         }

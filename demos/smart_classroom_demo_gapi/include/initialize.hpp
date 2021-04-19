@@ -293,6 +293,7 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector> &face_
                 std::vector<cv::Rect> rects;
                 gallery_pp.apply(cv::gin(image), cv::gout(rects, emb),
                                  cv::compile_args(custom::kernels(), gallery_networks));
+                std::cout << emb[0] << std::endl;
                 CV_Assert(emb.size() == 1);
                 // NOTE: RegistrationStatus analog check
                 if (!rects.empty() &&

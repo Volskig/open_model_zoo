@@ -106,85 +106,85 @@ int main(int argc, char* argv[]) {
         }
 
         /** Main graph of demo **/
-        cv::GComputation pp([&]() {
-            cv::GMat in;
-            cv::GMat frame = cv::gapi::copy(in);
-            /** Initialize empty GArrays **/
-            cv::GArray<cv::GMat> embeddings(std::vector<cv::Mat>{});
-            cv::GArray<DetectedAction> persons_with_actions(std::vector<DetectedAction>{});
-            cv::GArray<detection::DetectedObject> faces(std::vector<detection::DetectedObject>{});
+        cv::GMat in;
+        cv::GMat pp_frame = cv::gapi::copy(in);
+        /** Initialize empty GArrays **/
+        cv::GArray<cv::GMat> embeddings(std::vector<cv::Mat>{});
+        cv::GArray<DetectedAction> persons_with_actions(std::vector<DetectedAction>{});
+        cv::GArray<detection::DetectedObject> faces(std::vector<detection::DetectedObject>{});
 
-            if (const_params.actions_type != TOP_K) {
-                if (!fd_model_path.empty()) {
-                    /** Face detection **/
-                    cv::GMat detections = cv::gapi::infer<nets::FaceDetector>(in);
-                    faces = custom::FaceDetectorPostProc::on(in,
-                                                             detections,
-                                                             fd_kernel_input);
-                    if (!fr_model_path.empty() && !lm_model_path.empty()) {
-                        cv::GArray<cv::Rect> rects = custom::GetRectsFromDetections::on(faces);
-                        /** Get landmarks **/
-                        cv::GArray<cv::GMat> landmarks =
-                            cv::gapi::infer<nets::LandmarksDetector>(rects, in);
-                        /** Get aligned faces **/
-                         cv::GArray<cv::GMat> align_faces =
-                            custom::AlignFacesForReidentification::on(in, landmarks, rects);
-                        /** Get face identities metrics for each person **/
-                        embeddings = cv::gapi::infer2<nets::FaceReidentificator>(in, align_faces);
-                    }
+        if (const_params.actions_type != TOP_K) {
+            if (!fd_model_path.empty()) {
+                /** Face detection **/
+                cv::GMat detections = cv::gapi::infer<nets::FaceDetector>(in);
+                faces = custom::FaceDetectorPostProc::on(in,
+                                                         detections,
+                                                         fd_kernel_input);
+                if (!fr_model_path.empty() && !lm_model_path.empty()) {
+                    cv::GArray<cv::Rect> rects = custom::GetRectsFromDetections::on(faces);
+                    /** Get landmarks **/
+                    cv::GArray<cv::GMat> landmarks =
+                        cv::gapi::infer<nets::LandmarksDetector>(rects, in);
+                    /** Get aligned faces **/
+                     cv::GArray<cv::GMat> align_faces =
+                        custom::AlignFacesForReidentification::on(in, landmarks, rects);
+                    /** Get face identities metrics for each person **/
+                    embeddings = cv::gapi::infer2<nets::FaceReidentificator>(in, align_faces);
                 }
             }
+        }
 
-            /** First graph output **/
-            auto outs = GOut(frame);
-            if (!ad_model_path.empty()) {
-                cv::GMat location, detect_confidences, priorboxes, action_con1, action_con2, action_con3, action_con4;
-                /** Action detection-recognition **/
-                std::tie(location, detect_confidences, priorboxes, action_con1, action_con2, action_con3, action_con4) =
-                    cv::gapi::infer<nets::PersonDetActionRec>(in);
+        /** First graph output **/
+        auto outs = GOut(pp_frame);
+        if (!ad_model_path.empty()) {
+            cv::GMat location, detect_confidences, priorboxes, action_con1, action_con2, action_con3, action_con4;
+            /** Action detection-recognition **/
+            std::tie(location, detect_confidences, priorboxes, action_con1, action_con2, action_con3, action_con4) =
+                cv::gapi::infer<nets::PersonDetActionRec>(in);
 
-                /** Get actions for each person on frame **/
-                persons_with_actions =
-                    custom::PersonDetActionRecPostProc::on(in, location, detect_confidences,
-                                                           priorboxes, action_con1,
-                                                           action_con2, action_con3,
-                                                           action_con4, ad_kernel_input);
-            }
-            cv::GOpaque<DrawingElements> draw_elements;
-            cv::GArray<TrackedObject> tracked_actions;
-            if (const_params.actions_type != TOP_K) {
-                /** Main demo scenario **/
-                cv::GOpaque<FaceTrack> face_track;
-                cv::GOpaque<size_t> work_num_frames;
-                /** Recognize actions and faces **/
-                std::tie(tracked_actions, face_track, work_num_frames) =
-                    custom::GetRecognitionResult::on(in, faces, persons_with_actions, embeddings, frec_kernel_input, const_params);
+            /** Get actions for each person on frame **/
+            persons_with_actions =
+                custom::PersonDetActionRecPostProc::on(in, location, detect_confidences,
+                                                       priorboxes, action_con1,
+                                                       action_con2, action_con3,
+                                                       action_con4, ad_kernel_input);
+        }
+        cv::GOpaque<DrawingElements> draw_elements;
+        cv::GArray<TrackedObject> tracked_actions;
+        if (const_params.actions_type != TOP_K) {
+            /** Main demo scenario **/
+            cv::GOpaque<FaceTrack> face_track;
+            cv::GOpaque<size_t> work_num_frames;
+            /** Recognize actions and faces **/
+            std::tie(tracked_actions, face_track, work_num_frames) =
+                custom::GetRecognitionResult::on(in, faces, persons_with_actions, embeddings, frec_kernel_input, const_params);
 
-                cv::GOpaque<std::string> stream_log, stat_log, det_log;
-                cv::GArray<std::string> face_ids(face_id_to_label_map);
-                /** Get roi and labels for drawing and set logs **/
-                std::tie(draw_elements, stream_log, stat_log, det_log) =
-                    custom::RecognizeResultPostProc::on(in, tracked_actions, face_track, face_ids, work_num_frames, const_params);
-                /** Main demo part of graph output **/
-                outs += GOut(work_num_frames, stream_log, stat_log, det_log);
-            } else {
-                /** Top action case **/
-                cv::GMat top_k;
-                /** Recognize actions **/
-                tracked_actions =
-                    custom::GetActionTopHandsDetectionResult::on(in, persons_with_actions);
-                 /** Get roi and labels for drawing **/
-                std::tie(draw_elements, top_k) = custom::TopAction::on(in, tracked_actions, const_params);
-                /** Top action case part of graph output **/
-                outs += GOut(top_k);
-            }
-            /** Draw ROI and labels **/
-            auto rendered = cv::gapi::wip::draw::render3ch(frame,
-                                                           custom::BoxesAndLabels::on(frame, draw_elements, const_params));
-            /** Last graph output is frame to draw **/
-            outs += GOut(rendered);
-            return cv::GComputation(cv::GIn(in), std::move(outs));
-        });
+            cv::GOpaque<std::string> stream_log, stat_log, det_log;
+            cv::GArray<std::string> face_ids(face_id_to_label_map);
+            /** Get roi and labels for drawing and set logs **/
+            std::tie(draw_elements, stream_log, stat_log, det_log) =
+                custom::RecognizeResultPostProc::on(in, tracked_actions, face_track, face_ids, work_num_frames, const_params);
+            /** Main demo part of graph output **/
+            outs += GOut(work_num_frames, stream_log, stat_log, det_log);
+        } else {
+            /** Top action case **/
+            cv::GMat top_k;
+            /** Recognize actions **/
+            tracked_actions =
+                custom::GetActionTopHandsDetectionResult::on(in, persons_with_actions);
+             /** Get roi and labels for drawing **/
+            std::tie(draw_elements, top_k) = custom::TopAction::on(in, tracked_actions, const_params);
+            /** Top action case part of graph output **/
+            outs += GOut(top_k);
+        }
+        /** Draw ROI and labels **/
+        auto rendered = cv::gapi::wip::draw::render3ch(pp_frame,
+                                                       custom::BoxesAndLabels::on(pp_frame, draw_elements, const_params));
+        /** Last graph output is frame to draw **/
+        outs += GOut(rendered);
+
+        /** Pipeline's input and outputs**/
+        cv::GComputation pp(cv::GIn(in), std::move(outs));
 
         /** Create tracker parameters for reidentification **/
         TrackerParams tracker_reid_params;

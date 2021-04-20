@@ -76,7 +76,7 @@ FaceRecognizerConfig getRecConfig() {
     return rec_config;
 }
 
-bool isNetForSixActions(const std::string &model_path) {
+bool isNetForSixActions(const std::string& model_path) {
     CV_Assert(!model_path.empty());
     return model_path.at(model_path.size() - 5) == '6';
 }
@@ -105,23 +105,24 @@ detection::DetectorConfig getDetConfig() {
     return face_config;
 }
 
-void createFaceDetPtr(detection::FaceDetectionKernelInput &fd_kernel_input) {
+void createFaceDetPtr(detection::FaceDetectionKernelInput& fd_kernel_input) {
     const auto face_det_config = getDetConfig();
     fd_kernel_input.ptr.reset(new detection::FaceDetection(face_det_config));
 }
 
-void createFaceRegPtr(detection::FaceDetectionKernelInput &fd_kernel_input) {
+void createFaceRegPtr(detection::FaceDetectionKernelInput& fd_kernel_input) {
     auto face_registration_det_config = getDetConfig();
     face_registration_det_config.confidence_threshold = static_cast<float>(FLAGS_t_reg_fd);
     fd_kernel_input.ptr.reset(new detection::FaceDetection(face_registration_det_config));
 }
 
-void createFaceRecPtr(const FaceRecognizerConfig &rec_config,
-                            FaceRecognizerKernelInput &frec_kernel_input) {
+void createFaceRecPtr(const FaceRecognizerConfig& rec_config,
+                            FaceRecognizerKernelInput& frec_kernel_input) {
     frec_kernel_input.ptr.reset(new FaceRecognizer(rec_config));
 }
 
-ConstantParams getConstants(const std::string &video_path, const cv::Size frame_size, int fps, size_t num_frames) {
+ConstantParams getConstants(const std::string& video_path, const cv::Size frame_size,
+                            const int fps, const size_t num_frames) {
     ConstantParams const_params;
     const_params.teacher_id = FLAGS_teacher_id;
     const_params.actions_type = FLAGS_teacher_id.empty()
@@ -173,7 +174,7 @@ void printInfo() {
     }
 }
 
-std::string GetBinPath(const std::string &pathXML) {
+std::string GetBinPath(const std::string& pathXML) {
     CV_Assert(pathXML.substr(pathXML.size() - 4, pathXML.size()) == ".xml");
     std::string pathBIN(pathXML);
     return pathBIN.replace(pathBIN.size() - 3, 3, "bin");
@@ -183,10 +184,10 @@ void configNets(const std::string& fd_model_path,
                 const std::string& lm_model_path,
                 const std::string& fr_model_path,
                 const std::string& ad_model_path,
-                      cv::gapi::ie::Params<nets::FaceDetector>& det_net,
-                      cv::gapi::ie::Params<nets::LandmarksDetector>& landm_net,
+                      cv::gapi::ie::Params<nets::FaceDetector>&        det_net,
+                      cv::gapi::ie::Params<nets::LandmarksDetector>&   landm_net,
                       cv::gapi::ie::Params<nets::FaceReidentificator>& reident_net,
-                      cv::gapi::ie::Params<nets::PersonDetActionRec>& action_net) {
+                      cv::gapi::ie::Params<nets::PersonDetActionRec>&  action_net) {
     if (!ad_model_path.empty()) {
        /** Create action detector net's parameters **/
        std::array<std::string, 7> outputBlobList;
@@ -226,11 +227,11 @@ void configNets(const std::string& fd_model_path,
 } // namespace config
 
 namespace preparation {
-void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector> &face_net,
-                           const cv::gapi::ie::Params<nets::LandmarksDetector> &landm_net,
-                           const cv::gapi::ie::Params<nets::FaceReidentificator> &reident_net,
-                                 FaceRecognizerKernelInput &frec_kernel_input,
-                                 std::vector<std::string> &face_id_to_label_map) {
+void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector>&        face_net,
+                           const cv::gapi::ie::Params<nets::LandmarksDetector>&   landm_net,
+                           const cv::gapi::ie::Params<nets::FaceReidentificator>& reident_net,
+                                 FaceRecognizerKernelInput& frec_kernel_input,
+                                 std::vector<std::string>&  face_id_to_label_map) {
     // Face gallery processing
     std::vector<int> idx_to_id;
     std::vector<GalleryObject> identities;
@@ -239,32 +240,39 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector> &face_
     config::createFaceRegPtr(reid_kernel_input);
     if (!ids_list.empty()) {
         /** Gallery graph of demo **/
-        cv::GComputation gallery_pp([&]() {
-            cv::GMat in;
-            cv::GArray<cv::Rect> rects;
+        /** Input is one face from gallery **/
+        cv::GMat in;
+        cv::GArray<cv::Rect> rect;
 
-            if (FLAGS_crop_gallery) {
-                cv::GMat detections =
-                    cv::gapi::infer<nets::FaceDetector>(in);
+        /** Crop face from image **/
+        if (FLAGS_crop_gallery) {
+            /** Detect face **/
+            cv::GMat detections =
+                cv::gapi::infer<nets::FaceDetector>(in);
 
-                cv::GArray<detection::DetectedObject> faces =
-                    custom::FaceDetectorPostProc::on(in,
-                                                     detections,
-                                                     reid_kernel_input);
-                rects = custom::GetRectsFromDetections::on(faces);
-            }
-            else {
-                rects = custom::GetRectFromImage::on(in);
-            }
-            cv::GArray<cv::GMat> landmarks =
-                cv::gapi::infer<nets::LandmarksDetector>(rects, in);
+            cv::GArray<detection::DetectedObject> faces =
+                custom::FaceDetectorPostProc::on(in,
+                                                 detections,
+                                                 reid_kernel_input);
+            /** Get ROI for face **/
+            rect = custom::GetRectsFromDetections::on(faces);
+        } else {
+            /** Else ROI is equal to image size **/
+            rect = custom::GetRectFromImage::on(in);
+        }
+        /** Get landmarks by ROI **/
+        cv::GArray<cv::GMat> landmarks =
+            cv::gapi::infer<nets::LandmarksDetector>(rect, in);
 
-            cv::GArray<cv::GMat> align_faces =
-                custom::AlignFacesForReidentification::on(in, landmarks, rects);
+        /** Align face by landmarks **/
+        cv::GArray<cv::GMat> align_faces =
+            custom::AlignFacesForReidentification::on(in, landmarks, rect);
 
-            cv::GArray<cv::GMat> embeddings = cv::gapi::infer2<nets::FaceReidentificator>(in, align_faces);
-            return cv::GComputation(cv::GIn(in), cv::GOut(rects, embeddings));
-        });
+        /** Get face identities metrics **/
+        cv::GArray<cv::GMat> embeddings = cv::gapi::infer2<nets::FaceReidentificator>(in, align_faces);
+
+        /** Pipeline's input and outputs**/
+        cv::GComputation gallery_pp(cv::GIn(in), cv::GOut(rect, embeddings));
 
         auto gallery_networks = cv::gapi::networks(face_net, landm_net, reident_net);
 
@@ -273,7 +281,7 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector> &face_
         int id = 0;
         for (const auto& item : fn) {
             std::string label = item.name();
-            std::vector<cv::Mat> embeddings;
+            std::vector<cv::Mat> out_embeddings;
             // Please, note that the case when there are more than one image in gallery
             // for a person might not work properly with the current implementation
             // of the demo.
@@ -285,24 +293,23 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector> &face_
                 std::vector<cv::Mat> emb;
                 if (config::fileExists(item_e.string())) {
                     image = cv::imread(item_e.string());
-                }
-                else {
+                } else {
                     image = cv::imread(config::folderName(ids_list) + config::separator() + item_e.string());
                 }
                 CV_Assert(!image.empty());
-                std::vector<cv::Rect> rects;
-                gallery_pp.apply(cv::gin(image), cv::gout(rects, emb),
+                std::vector<cv::Rect> out_rect;
+                gallery_pp.apply(cv::gin(image), cv::gout(out_rect, emb),
                                  cv::compile_args(custom::kernels(), gallery_networks));
-                std::cout << emb[0] << std::endl;
                 CV_Assert(emb.size() == 1);
+                CV_Assert(out_rect.size() == 1);
                 // NOTE: RegistrationStatus analog check
-                if (!rects.empty() &&
-                    !(rects.size() > 1) &&
-                    (rects[0].width > FLAGS_min_size_fr) &&
-                    (rects[0].height > FLAGS_min_size_fr)) {
-                    embeddings.emplace_back(emb.front().reshape(1, { 256, 1 }));
+                if (!out_rect.empty() &&
+                    !(out_rect.size() > 1) &&
+                    (out_rect[0].width > FLAGS_min_size_fr) &&
+                    (out_rect[0].height > FLAGS_min_size_fr)) {
+                    out_embeddings.emplace_back(emb.front().reshape(1, { 256, 1 }));
                     idx_to_id.emplace_back(id);
-                    identities.emplace_back(embeddings, label, id++);
+                    identities.emplace_back(out_embeddings, label, id++);
                 }
             }
         }

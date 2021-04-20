@@ -60,18 +60,24 @@ GAPI_OCV_KERNEL(OCVAlignFacesForReidentification,
                     const std::vector<cv::Mat> &landmarks,
                     const std::vector<cv::Rect> &face_rois,
                           std::vector<cv::Mat> &out_images) {
-        cv::Mat out_image;
-        in.copyTo(out_image);
+        cv::Mat out_image = in.clone();
         out_images.clear();
         for (const auto& rect : face_rois) {
             out_images.emplace_back(out_image(rect));
         }
         AlignFaces(&out_images, &const_cast<std::vector<cv::Mat>&>(landmarks));
+        /** Preprocessing for CNN input **/
         for (auto& image : out_images) {
-            cv::Mat rsz;
-            cv::resize(image, rsz, cv::Size(112, 112));
-            rsz = rsz.reshape(1, {1 , 3, 112, 112});
-            rsz.convertTo(image, CV_32F);
+            cv::Mat rsz, cvt;
+            cv::resize(image, rsz, cv::Size(112, 112));  // resize
+            rsz.convertTo(cvt, CV_32F);                  // to F32 type
+            image.create(cv::Size(cvt.cols, cvt.rows * cvt.channels()), CV_32F);
+            std::vector<cv::Mat> planes;
+            for (int i = 0; i < cvt.channels(); ++i) {
+                planes.push_back(image.rowRange(i * cvt.rows, (i + 1) * cvt.rows));
+            }
+            cv::split(cvt, planes);                      // to NCHW
+            image = image.reshape(1, {1 , 3, 112, 112}); // reshape to CNN input
         }
     }
 };

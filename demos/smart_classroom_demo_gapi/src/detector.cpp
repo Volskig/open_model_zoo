@@ -45,50 +45,14 @@ cv::Rect IncreaseRect(const cv::Rect& r, float coeff_x, float coeff_y) {
 }
 }  // namespace
 
-DetectedObjects FaceDetection::fetchResults(const cv::Mat& in_ssd_result, const cv::Mat& frame) {
-    const float* data = reinterpret_cast<float*>(in_ssd_result.data);
-    DetectedObjects results;
-
-    width_  = static_cast<float>(frame.cols);
-    height_ = static_cast<float>(frame.rows);
-    max_detections_count_ = in_ssd_result.size[2];
-    object_size_          = in_ssd_result.size[3];
-
-    for (int det_id = 0; det_id < max_detections_count_; ++det_id) {
-        const int start_pos = det_id * object_size_;
-
-        const float batchID = data[start_pos];
-        if (batchID == SSD_EMPTY_DETECTIONS_INDICATOR) {
-            break;
-        }
-
-        const float score = std::min(std::max(0.0f, data[start_pos + 2]), 1.0f);
-        const float x0 =
-            std::min(std::max(0.0f, data[start_pos + 3]), 1.0f) * width_;
-        const float y0 =
-            std::min(std::max(0.0f, data[start_pos + 4]), 1.0f) * height_;
-        const float x1 =
-            std::min(std::max(0.0f, data[start_pos + 5]), 1.0f) * width_;
-        const float y1 =
-            std::min(std::max(0.0f, data[start_pos + 6]), 1.0f) * height_;
-
-        DetectedObject object;
-        object.confidence = score;
-        object.rect = cv::Rect(cv::Point(static_cast<int>(round(static_cast<double>(x0))),
-                                         static_cast<int>(round(static_cast<double>(y0)))),
-                               cv::Point(static_cast<int>(round(static_cast<double>(x1))),
-                                         static_cast<int>(round(static_cast<double>(y1)))));
-
-        object.rect = TruncateToValidRect(IncreaseRect(object.rect,
-                                          config_.increase_scale_x,
-                                          config_.increase_scale_y),
-                                          cv::Size(static_cast<int>(width_),
-                                          static_cast<int>(height_)));
-        // NOTE: Needs implement imput reshape for default confidence_threshold
-        if (object.confidence > config_.confidence_threshold && object.rect.area() > 0) {
-            results.emplace_back(object);
-        }
+void FaceDetection::truncateRois(const cv::Mat& in,
+                                 const std::vector<cv::Rect>& face_rois,
+                                       std::vector<cv::Rect>& valid_face_rois) {
+    for (const auto& roi : face_rois) {
+        valid_face_rois.emplace_back(TruncateToValidRect(IncreaseRect(roi,
+                                                         config_.increase_scale_x,
+                                                         config_.increase_scale_y),
+                                                         cv::Size(int(in.cols),
+                                                                  int(in.rows))));
     }
-
-    return results;
 }

@@ -33,10 +33,10 @@ public:
         return face_gallery.GetIDToLabelMap();
     }
 
-    std::vector<int> Recognize(std::vector<cv::Mat>& embeddings,
-        const detection::DetectedObjects& faces) {
+    std::vector<int> Recognize(const std::vector<cv::Rect>& face_rois,
+                               std::vector<cv::Mat>& embeddings) {
         if (embeddings.empty()) {
-            return std::vector<int>(faces.size(), EmbeddingsGallery::unknown_id);
+            return std::vector<int>(face_rois.size(), EmbeddingsGallery::unknown_id);
         }
         for (auto & emb : embeddings) {
             emb = emb.reshape(1, { static_cast<int>(emb.total()), 1 });

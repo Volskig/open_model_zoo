@@ -30,12 +30,7 @@ cv::Rect DrawingHelper::DecreaseRectByRelBorders(const cv::Rect& r) {
     const float top = std::ceil(h * 0.0f);
     const float right = std::ceil(w * 0.0f);
     const float bottom = std::ceil(h * .7f);
-    cv::Rect res;
-    res.x = r.x + static_cast<int>(left);
-    res.y = r.y + static_cast<int>(top);
-    res.width = static_cast<int>(r.width - left - right);
-    res.height = static_cast<int>(r.height - top - bottom);
-    return res;
+    return cv::Rect(r.x + int(left), r.y + int(top), int(r.width - left - right), int(r.height - top - bottom));
 }
 
 int DrawingHelper::GetIndexOfTheNearestPerson(const TrackedObject& face, const std::vector<TrackedObject>& tracked_persons) {

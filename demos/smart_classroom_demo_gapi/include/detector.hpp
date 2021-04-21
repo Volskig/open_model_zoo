@@ -12,16 +12,6 @@
 
 namespace detection {
 
-struct DetectedObject {
-    cv::Rect rect;
-    float confidence;
-
-    explicit DetectedObject(const cv::Rect& rect = cv::Rect(), float confidence = -1.0f)
-        : rect(rect), confidence(confidence) {}
-};
-
-using DetectedObjects = std::vector<DetectedObject>;
-
 struct DetectorConfig {
     float confidence_threshold{0.6f};
     float increase_scale_x{1.15f};
@@ -31,15 +21,9 @@ struct DetectorConfig {
 class FaceDetection {
 private:
     DetectorConfig config_;
-    int max_detections_count_ = 0;
-    int object_size_ = 0;
-    float width_ = 0;
-    float height_ = 0;
-
 public:
     explicit FaceDetection(const DetectorConfig& config) : config_(config) {}
-
-    DetectedObjects fetchResults(const cv::Mat&, const cv::Mat&);
+    void truncateRois(const cv::Mat&, const std::vector<cv::Rect>&, std::vector<cv::Rect>&);
 };
 
 struct FaceDetectionKernelInput {

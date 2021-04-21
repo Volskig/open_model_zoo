@@ -10,6 +10,7 @@
 #include "kernel_packages.hpp"
 
 #include <opencv2/gapi/infer/ie.hpp>
+#include <opencv2/gapi/infer/parsers.hpp>
 
 namespace nets {
     G_API_NET(FaceDetector,        <cv::GMat(cv::GMat)>, "face-detector");
@@ -99,7 +100,6 @@ void createActDetPtr(const bool net_with_six_actions,
 detection::DetectorConfig getDetConfig() {
     // Load face detector
     detection::DetectorConfig face_config;
-    face_config.confidence_threshold = static_cast<float>(FLAGS_t_fd);
     face_config.increase_scale_x = static_cast<float>(FLAGS_exp_r_fd);
     face_config.increase_scale_y = static_cast<float>(FLAGS_exp_r_fd);
     return face_config;
@@ -112,7 +112,6 @@ void createFaceDetPtr(detection::FaceDetectionKernelInput& fd_kernel_input) {
 
 void createFaceRegPtr(detection::FaceDetectionKernelInput& fd_kernel_input) {
     auto face_registration_det_config = getDetConfig();
-    face_registration_det_config.confidence_threshold = static_cast<float>(FLAGS_t_reg_fd);
     fd_kernel_input.ptr.reset(new detection::FaceDetection(face_registration_det_config));
 }
 
@@ -121,8 +120,10 @@ void createFaceRecPtr(const FaceRecognizerConfig& rec_config,
     frec_kernel_input.ptr.reset(new FaceRecognizer(rec_config));
 }
 
-ConstantParams getConstants(const std::string& video_path, const cv::Size frame_size,
-                            const int fps, const size_t num_frames) {
+std::tuple<ConstantParams, TrackerParams, TrackerParams> getGraphArgs(const std::string& video_path,
+                                                                      const cv::Size& frame_size,
+                                                                      const int fps,
+                                                                      const size_t num_frames) {
     ConstantParams const_params;
     const_params.teacher_id = FLAGS_teacher_id;
     const_params.actions_type = FLAGS_teacher_id.empty()
@@ -154,10 +155,38 @@ ConstantParams getConstants(const std::string& video_path, const cv::Size frame_
     const_params.smooth_min_length = fps * FLAGS_min_ad;
     const_params.top_flag = FLAGS_a_top;
     const_params.draw_ptr->GetNewFrameSize(frame_size);
-    return const_params;
+
+    /** Create tracker parameters for reidentification **/
+    TrackerParams tracker_reid_params;
+    tracker_reid_params.min_track_duration = 1;
+    tracker_reid_params.forget_delay = 150;
+    tracker_reid_params.affinity_thr = 0.8f;
+    tracker_reid_params.averaging_window_size_for_rects = 1;
+    tracker_reid_params.averaging_window_size_for_labels = std::numeric_limits<int>::max();
+    tracker_reid_params.bbox_heights_range = cv::Vec2f(10, 1080);
+    tracker_reid_params.drop_forgotten_tracks = false;
+    tracker_reid_params.max_num_objects_in_track = std::numeric_limits<int>::max();
+    tracker_reid_params.objects_type = "face";
+
+    /** Create tracker parameters for action recognition **/
+    TrackerParams tracker_action_params;
+    tracker_action_params.min_track_duration = 8;
+    tracker_action_params.forget_delay = 150;
+    tracker_action_params.affinity_thr = 0.9f;
+    tracker_action_params.averaging_window_size_for_rects = 5;
+    tracker_action_params.averaging_window_size_for_labels = FLAGS_ss_t > 0
+                                                             ? FLAGS_ss_t
+                                                             : const_params.actions_type == TOP_K ? 5 : 1;
+    tracker_action_params.bbox_heights_range = cv::Vec2f(10, 2160);
+    tracker_action_params.drop_forgotten_tracks = false;
+    tracker_action_params.max_num_objects_in_track = std::numeric_limits<int>::max();
+    tracker_action_params.objects_type = "action";
+
+    return std::make_tuple(const_params, tracker_reid_params, tracker_action_params);
 }
 
 void printInfo() {
+    slog::info << "InferenceEngine: " << printable(*InferenceEngine::GetInferenceEngineVersion()) << slog::endl;
     if (!FLAGS_teacher_id.empty() && !FLAGS_top_id.empty()) {
         slog::err << "Cannot run simultaneously teacher action and top-k students recognition."
                   << slog::endl;
@@ -247,15 +276,14 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector>&      
         /** Crop face from image **/
         if (FLAGS_crop_gallery) {
             /** Detect face **/
-            cv::GMat detections =
-                cv::gapi::infer<nets::FaceDetector>(in);
-
-            cv::GArray<detection::DetectedObject> faces =
-                custom::FaceDetectorPostProc::on(in,
-                                                 detections,
-                                                 reid_kernel_input);
-            /** Get ROI for face **/
-            rect = custom::GetRectsFromDetections::on(faces);
+            cv::GMat detections = cv::gapi::infer<nets::FaceDetector>(in);
+            cv::GOpaque<cv::Size> sz = cv::gapi::streaming::size(in);
+            cv::GArray<cv::Rect> face_rect;
+            cv::GArray<int> labels;
+            std::tie(face_rect, labels) = cv::gapi::parseSSD(detections, sz, float(FLAGS_t_reg_fd), -1);
+            rect = custom::FaceDetectorPostProc::on(in,
+                                                    face_rect,
+                                                    reid_kernel_input);
         } else {
             /** Else ROI is equal to image size **/
             rect = custom::GetRectFromImage::on(in);

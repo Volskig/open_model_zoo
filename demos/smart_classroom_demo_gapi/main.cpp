@@ -34,8 +34,6 @@ bool ParseAndCheckCommandLine(int argc, char *argv[]) {
 int main(int argc, char* argv[]) { 
     try {
         /** This demo covers 4 certain topologies and cannot be generalized **/
-        slog::info << "InferenceEngine: " << printable(*InferenceEngine::GetInferenceEngineVersion()) << slog::endl;
-
         if (!ParseAndCheckCommandLine(argc, argv)) {
             return 0;
         }
@@ -56,9 +54,11 @@ int main(int argc, char* argv[]) {
         const auto frame_size = cv::Size(static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH)),
                                          static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT)));
 
-        /** Fill shared constants **/
-        const auto const_params =
-            config::getConstants(video_path,
+        /** Fill shared constants and tracker parameters **/
+        TrackerParams tracker_reid_params, tracker_action_params;
+        ConstantParams const_params;
+        std::tie(const_params, tracker_reid_params, tracker_action_params) =
+            config::getGraphArgs(video_path,
                                  frame_size,
                                  static_cast<int>(cap.get(cv::CAP_PROP_FPS)),
                                  static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT)));
@@ -111,17 +111,20 @@ int main(int argc, char* argv[]) {
         /** Initialize empty GArrays **/
         cv::GArray<cv::GMat> embeddings(std::vector<cv::Mat>{});
         cv::GArray<DetectedAction> persons_with_actions(std::vector<DetectedAction>{});
-        cv::GArray<detection::DetectedObject> faces(std::vector<detection::DetectedObject>{});
+        cv::GArray<cv::Rect> rects(std::vector<cv::Rect>{});
 
         if (const_params.actions_type != TOP_K) {
             if (!fd_model_path.empty()) {
                 /** Face detection **/
                 cv::GMat detections = cv::gapi::infer<nets::FaceDetector>(in);
-                faces = custom::FaceDetectorPostProc::on(in,
-                                                         detections,
+                cv::GOpaque<cv::Size> sz = cv::gapi::streaming::size(in);
+                cv::GArray<cv::Rect> face_rects;
+                cv::GArray<int> labels;
+                std::tie(face_rects, labels) = cv::gapi::parseSSD(detections, sz, float(FLAGS_t_fd), -1);
+                rects = custom::FaceDetectorPostProc::on(in,
+                                                         face_rects,
                                                          fd_kernel_input);
                 if (!fr_model_path.empty() && !lm_model_path.empty()) {
-                    cv::GArray<cv::Rect> rects = custom::GetRectsFromDetections::on(faces);
                     /** Get landmarks **/
                     cv::GArray<cv::GMat> landmarks =
                         cv::gapi::infer<nets::LandmarksDetector>(rects, in);
@@ -157,7 +160,7 @@ int main(int argc, char* argv[]) {
             cv::GOpaque<size_t> work_num_frames;
             /** Recognize actions and faces **/
             std::tie(tracked_actions, face_track, work_num_frames) =
-                custom::GetRecognitionResult::on(in, faces, persons_with_actions, embeddings, frec_kernel_input, const_params);
+                custom::GetRecognitionResult::on(in, rects, persons_with_actions, embeddings, frec_kernel_input, const_params);
 
             cv::GOpaque<std::string> stream_log, stat_log, det_log;
             cv::GArray<std::string> face_ids(face_id_to_label_map);
@@ -186,32 +189,6 @@ int main(int argc, char* argv[]) {
         /** Pipeline's input and outputs**/
         cv::GComputation pp(cv::GIn(in), std::move(outs));
 
-        /** Create tracker parameters for reidentification **/
-        TrackerParams tracker_reid_params;
-        tracker_reid_params.min_track_duration = 1;
-        tracker_reid_params.forget_delay = 150;
-        tracker_reid_params.affinity_thr = 0.8f;
-        tracker_reid_params.averaging_window_size_for_rects = 1;
-        tracker_reid_params.averaging_window_size_for_labels = std::numeric_limits<int>::max();
-        tracker_reid_params.bbox_heights_range = cv::Vec2f(10, 1080);
-        tracker_reid_params.drop_forgotten_tracks = false;
-        tracker_reid_params.max_num_objects_in_track = std::numeric_limits<int>::max();
-        tracker_reid_params.objects_type = "face";
-
-        /** Create tracker parameters for action recognition **/
-        TrackerParams tracker_action_params;
-        tracker_action_params.min_track_duration = 8;
-        tracker_action_params.forget_delay = 150;
-        tracker_action_params.affinity_thr = 0.9f;
-        tracker_action_params.averaging_window_size_for_rects = 5;
-        tracker_action_params.averaging_window_size_for_labels = FLAGS_ss_t > 0
-                                                                 ? FLAGS_ss_t
-                                                                 : const_params.actions_type == TOP_K ? 5 : 1;
-        tracker_action_params.bbox_heights_range = cv::Vec2f(10, 2160);
-        tracker_action_params.drop_forgotten_tracks = false;
-        tracker_action_params.max_num_objects_in_track = std::numeric_limits<int>::max();
-        tracker_action_params.objects_type = "action";
-
         cv::GStreamingCompiled cc = pp.compileStreaming(cv::compile_args(custom::kernels(),
                                                         networks,
                                                         TrackerParamsPack{ tracker_reid_params, tracker_action_params },
@@ -226,9 +203,10 @@ int main(int argc, char* argv[]) {
         size_t wait_num_frames = 0;
         size_t work_num_frames = 0;
         size_t total_num_frames = 0;
-        bool monitoring_enabled = const_params.actions_type == TOP_K ? false : true;
+        size_t work_time_ms_all = 0;
         const char SPACE_KEY = 32;
         const char ESC_KEY = 27;
+        bool monitoring_enabled = const_params.actions_type == TOP_K ? false : true;
         cv::Size graphSize { static_cast<int>(frame_size.width / 4), 60 };
 
         /** Presenter for rendering system parameters **/
@@ -262,6 +240,7 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
 
         /** Main cycle **/
+        auto started_all = std::chrono::high_resolution_clock::now();
         while (true) {
             auto started = std::chrono::high_resolution_clock::now();
             char key = cv::waitKey(1);
@@ -314,7 +293,7 @@ int main(int argc, char* argv[]) {
                                                CV_RGB(255, 0, 0));
                 const_params.draw_ptr->Show(proc);
                 const_params.draw_ptr->ShowCrop(top_k);
-                total_num_frames = work_num_frames;
+                total_num_frames = work_num_frames + wait_num_frames;
             } else if (const_params.actions_type != TOP_K) {
                 /** Main part. Processing is always on **/
                 auto elapsed = std::chrono::high_resolution_clock::now() - started;
@@ -344,6 +323,8 @@ int main(int argc, char* argv[]) {
             /** Console log, if exists **/
             std::cout << stream_log;
         }
+        auto elapsed = std::chrono::high_resolution_clock::now() - started_all;
+        work_time_ms_all += std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
         if (vid_writer.isOpened()) {
             vid_writer.release();
         };
@@ -360,10 +341,10 @@ int main(int argc, char* argv[]) {
         slog::info << slog::endl;
         /** Results **/
         if ( work_num_frames > 0) {
-            const float mean_time_ms = work_time_ms / static_cast<float>(work_num_frames);
+            const float mean_time_ms = work_time_ms_all / static_cast<float>(work_num_frames);
             slog::info << "Mean FPS: " << 1e3f / mean_time_ms << slog::endl;
         }
-        slog::info << "Frames processed: " << total_num_frames << slog::endl;
+        slog::info << "Frames: " << total_num_frames << slog::endl;
         std::cout << presenter.reportMeans() << '\n';
     }
     catch (const std::exception& error) {

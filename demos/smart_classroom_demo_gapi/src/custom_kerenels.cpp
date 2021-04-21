@@ -30,11 +30,11 @@ const cv::Scalar red_color   = CV_RGB(255, 0,   0);
 const cv::Scalar white_color = CV_RGB(255, 255, 255);
 
 GAPI_OCV_KERNEL(OCVFaceDetectorPostProc, custom::FaceDetectorPostProc) {
-    static void run(const cv::Mat &in_frame,
-                    const cv::Mat &in_ssd_result,
+    static void run(const cv::Mat& in,
+                    const std::vector<cv::Rect>& rois,
                     const detection::FaceDetectionKernelInput &face_inp,
-                    std::vector<detection::DetectedObject> &out_faces) {
-        out_faces = face_inp.ptr->fetchResults(in_ssd_result, in_frame);
+                    std::vector<cv::Rect> &out_rects) {
+        face_inp.ptr->truncateRois(in, rois, out_rects);
     }
 };
 
@@ -42,15 +42,6 @@ GAPI_OCV_KERNEL(OCVGetRectFromImage, custom::GetRectFromImage) {
     static void run(const cv::Mat &in_image,
                     std::vector<cv::Rect> &out_rects) {
         out_rects.emplace_back(cv::Rect(0, 0, in_image.cols, in_image.rows));
-    }
-};
-
-GAPI_OCV_KERNEL(OCVGetRectsFromDetections, custom::GetRectsFromDetections) {
-    static void run(const detection::DetectedObjects &detections,
-                    std::vector<cv::Rect> &out_rects) {
-        for (const auto& it : detections) {
-            out_rects.emplace_back(it.rect);
-        }
     }
 };
 
@@ -143,7 +134,7 @@ GAPI_OCV_KERNEL_ST(OCVGetRecognitionResult, custom::GetRecognitionResult, Tracke
             trParamsPack.tracker_action_params);
     }
     static void run(const cv::Mat &frame,
-                    const detection::DetectedObjects &faces,
+                    const std::vector<cv::Rect> &faces,
                     const DetectedActions &actions,
                     const std::vector<cv::Mat> &embeddings,
                     const FaceRecognizerKernelInput &face_rec,
@@ -155,9 +146,9 @@ GAPI_OCV_KERNEL_ST(OCVGetRecognitionResult, custom::GetRecognitionResult, Tracke
         TrackedObjects tracked_face_objects, tracked_action_objects, tracked_faces;
         std::vector<Track> face_tracks;
         std::vector<std::string> face_labels;
-        std::vector<int> ids = face_rec.ptr->Recognize(const_cast<std::vector<cv::Mat>&>(embeddings), faces);
+        std::vector<int> ids = face_rec.ptr->Recognize(faces, const_cast<std::vector<cv::Mat>&>(embeddings));
         for (size_t i = 0; i < faces.size(); ++i) {
-            tracked_face_objects.emplace_back(faces[i].rect, faces[i].confidence, ids[i]);
+            tracked_face_objects.emplace_back(faces[i], 1.f, ids[i]);
         }
         trackers.tracker_reid.Process(frame, tracked_face_objects);
         tracked_faces = trackers.tracker_reid.TrackedDetectionsWithLabels();
@@ -406,7 +397,6 @@ GAPI_OCV_KERNEL_ST(OCVTopAction, custom::TopAction, TopKState) {
 
 cv::gapi::GKernelPackage custom::kernels() {
     return cv::gapi::kernels<OCVFaceDetectorPostProc,
-                             OCVGetRectsFromDetections,
                              OCVPersonDetActionRecPostProc,
                              OCVAlignFacesForReidentification,
                              OCVGetActionTopHandsDetectionResult,

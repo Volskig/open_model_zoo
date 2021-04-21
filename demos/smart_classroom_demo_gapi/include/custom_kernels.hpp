@@ -67,7 +67,9 @@ namespace custom {
                      const cv::GOpaque<DrawingElements>,
                      const ConstantParams &)>,
             "custom.boxes_and_labels") {
-        static cv::GArrayDesc outMeta(const cv::GMatDesc &, const cv::GOpaqueDesc &, const ConstantParams &) {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc&,
+                                      const cv::GOpaqueDesc&,
+                                      const ConstantParams&) {
             return cv::empty_array_desc();
         }
     };
@@ -82,12 +84,12 @@ namespace custom {
                                                    cv::GOpaque<size_t>,
                                                    ConstantParams)>,
              "custom.processing_result_of_recognize") {
-        static four<cv::GOpaqueDesc>outMeta(const cv::GMatDesc &in,
-                                            const cv::GArrayDesc &,
-                                            const cv::GOpaqueDesc &,
-                                            const cv::GArrayDesc &,
-                                            const cv::GOpaqueDesc &,
-                                            const ConstantParams &) {
+        static four<cv::GOpaqueDesc> outMeta(const cv::GMatDesc& in,
+                                             const cv::GArrayDesc&,
+                                             const cv::GOpaqueDesc&,
+                                             const cv::GArrayDesc&,
+                                             const cv::GOpaqueDesc&,
+                                             const ConstantParams&) {
             return std::make_tuple(cv::empty_gopaque_desc(),
                                    cv::empty_gopaque_desc(),
                                    cv::empty_gopaque_desc(),
@@ -100,20 +102,21 @@ namespace custom {
                                                                  cv::GArray<TrackedObject>,
                                                                  ConstantParams)>,
             "sample.custom.rising_hand_processing") {
-        static std::tuple<cv::GOpaqueDesc, cv::GMatDesc> outMeta(const cv::GMatDesc & in,
-                                                                 const cv::GArrayDesc &,
-                                                                 const ConstantParams &) {
+        static std::tuple<cv::GOpaqueDesc, cv::GMatDesc> outMeta(const cv::GMatDesc& in,
+                                                                 const cv::GArrayDesc&,
+                                                                 const ConstantParams&) {
             return std::make_tuple(cv::empty_gopaque_desc(), in);
         }
     };
 
     G_API_OP(FaceDetectorPostProc,
-             <cv::GArray<detection::DetectedObject>(cv::GMat,
-                                                    cv::GMat,
-                                                    detection::FaceDetectionKernelInput)>,
+             <cv::GArray<cv::Rect>(cv::GMat,
+                                   cv::GArray<cv::Rect>,
+                                   detection::FaceDetectionKernelInput)>,
              "custom.fd_postproc") {
-        static cv::GArrayDesc outMeta(const cv::GMatDesc &, const cv::GMatDesc &,
-                                      const detection::FaceDetectionKernelInput &) {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc&,
+                                      const cv::GArrayDesc&,
+                                      const detection::FaceDetectionKernelInput&) {
             return cv::empty_array_desc();
         }
     };
@@ -121,15 +124,7 @@ namespace custom {
     G_API_OP(GetRectFromImage,
              <cv::GArray<cv::Rect>(cv::GMat)>,
              "custom.get_rect_from_image") {
-        static cv::GArrayDesc outMeta(const cv::GMatDesc &) {
-            return cv::empty_array_desc();
-        }
-    };
-
-    G_API_OP(GetRectsFromDetections,
-             <cv::GArray<cv::Rect>(cv::GArray<detection::DetectedObject>)>,
-             "custom.get_rects_from_detection") {
-        static cv::GArrayDesc outMeta(const cv::GArrayDesc &) {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc&) {
             return cv::empty_array_desc();
         }
     };
@@ -141,10 +136,10 @@ namespace custom {
                                          cv::GMat, cv::GMat,
                                          ActionDetectionKernelInput)>,
              "custom.person_detection_action_recognition_postproc") {
-        static cv::GArrayDesc outMeta(const cv::GMatDesc &, const cv::GMatDesc &,
-                                      const cv::GMatDesc &, const cv::GMatDesc &,
-                                      const cv::GMatDesc &, const cv::GMatDesc &,
-                                      const cv::GMatDesc &, const cv::GMatDesc &,
+        static cv::GArrayDesc outMeta(const cv::GMatDesc&, const cv::GMatDesc&,
+                                      const cv::GMatDesc&, const cv::GMatDesc&,
+                                      const cv::GMatDesc&, const cv::GMatDesc&,
+                                      const cv::GMatDesc&, const cv::GMatDesc&,
                                       const ActionDetectionKernelInput &) {
             return cv::empty_array_desc();
         }
@@ -153,9 +148,9 @@ namespace custom {
     G_API_OP(AlignFacesForReidentification,
              <cv::GArray<cv::GMat>(cv::GMat, cv::GArray<cv::GMat>, cv::GArray<cv::Rect>)>,
              "custom.align_faces_for_reidentification") {
-        static cv::GArrayDesc outMeta(const cv::GMatDesc &,
-                                      const cv::GArrayDesc &,
-                                      const cv::GArrayDesc &) {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc&,
+                                      const cv::GArrayDesc&,
+                                      const cv::GArrayDesc&) {
             return cv::empty_array_desc();
         }
     };
@@ -164,7 +159,7 @@ namespace custom {
              <std::tuple<cv::GArray<TrackedObject>,
                          cv::GOpaque<FaceTrack>,
                          cv::GOpaque<size_t>>(cv::GMat,
-                                              cv::GArray<detection::DetectedObject>,
+                                              cv::GArray<cv::Rect>,
                                               cv::GArray<DetectedAction>,
                                               cv::GArray<cv::GMat>,
                                               FaceRecognizerKernelInput,
@@ -172,12 +167,12 @@ namespace custom {
              "custom.get_recognition_result") {
         static std::tuple<cv::GArrayDesc,
                           cv::GOpaqueDesc,
-                          cv::GOpaqueDesc> outMeta(const cv::GMatDesc &,
-                                                   const cv::GArrayDesc &,
-                                                   const cv::GArrayDesc &,
-                                                   const cv::GArrayDesc &,
-                                                   const FaceRecognizerKernelInput &,
-                                                   const ConstantParams &) {
+                          cv::GOpaqueDesc> outMeta(const cv::GMatDesc&,
+                                                   const cv::GArrayDesc&,
+                                                   const cv::GArrayDesc&,
+                                                   const cv::GArrayDesc&,
+                                                   const FaceRecognizerKernelInput&,
+                                                   const ConstantParams&) {
             return std::make_tuple(cv::empty_array_desc(),
                                    cv::empty_gopaque_desc(),
                                    cv::empty_gopaque_desc());
@@ -188,7 +183,7 @@ namespace custom {
              <cv::GArray<TrackedObject>(cv::GMat,
                                         cv::GArray<DetectedAction>)>,
              "custom.get_action_detection_result_for_top_k_first_hands") {
-        static cv::GArrayDesc outMeta(const cv::GMatDesc &, const cv::GArrayDesc &) {
+        static cv::GArrayDesc outMeta(const cv::GMatDesc&, const cv::GArrayDesc&) {
             return cv::empty_array_desc();
         }
     };

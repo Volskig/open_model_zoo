@@ -51,14 +51,12 @@ DetectedActions ActionDetection::fetchResults(const std::vector<cv::Mat> &ssd_re
         int anchor_height, anchor_width;
         for (int anchor_id = 0; anchor_id < head_anchors[head_id]; ++anchor_id) {
             cv::MatSize anchor_dims(nullptr);
-            if (head_anchors[head_id] == 1) {
-                anchor_dims = add_conf_out[anchor_id].size;
-            } else {
-                anchor_dims = add_conf_out[anchor_id + num_heads - 1].size;
-            }
+            anchor_dims = head_anchors[head_id] == 1
+                              ? add_conf_out[anchor_id].size
+                              : add_conf_out[anchor_id + num_heads - 1].size;
             anchor_height = new_network_ ? anchor_dims[2] : anchor_dims[1];
             anchor_width = new_network_ ? anchor_dims[3] : anchor_dims[2];
-            std::size_t action_dimention_idx = new_network_ ? 1 : 3;
+            size_t action_dimention_idx = new_network_ ? 1 : 3;
             if (static_cast<size_t>(anchor_dims[action_dimention_idx]) != config_.num_action_classes) {
                 GAPI_Assert(false && "The number of specified actions and the number of actions predicted by \
  the Person/Action Detection Retail model must match");

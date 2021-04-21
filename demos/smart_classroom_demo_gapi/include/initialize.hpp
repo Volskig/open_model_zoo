@@ -20,6 +20,25 @@ namespace nets {
     G_API_NET(PersonDetActionRec,  <PAInfo(cv::GMat)>,   "person-detection-action-recognition");
 } // namespace nets
 
+namespace util {
+bool ParseAndCheckCommandLine(int argc, char *argv[]) {
+    gflags::ParseCommandLineNonHelpFlags(&argc, &argv, true);
+    if (FLAGS_h) {
+        showUsage();
+        showAvailableDevices();
+        return false;
+    }
+    slog::info << "Parsing input parameters" << slog::endl;
+    if (FLAGS_i.empty()) {
+        throw std::logic_error("Parameter -i is not set");
+    }
+    if (FLAGS_m_act.empty() && FLAGS_m_fd.empty()) {
+        throw std::logic_error("At least one parameter -m_act or -m_fd must be set");
+    }
+    return true;
+}
+} // namespace util
+
 namespace config {
 const std::array<std::string, 7> action_detector_5 = {
     "mbox_loc1/out/conv/flat",
@@ -209,56 +228,60 @@ std::string GetBinPath(const std::string& pathXML) {
     return pathBIN.replace(pathBIN.size() - 3, 3, "bin");
 }
 
+inline cv::gapi::GNetPackage& operator += (cv::gapi::GNetPackage& lhs, const cv::gapi::GNetPackage& rhs) {
+    lhs.networks.reserve(lhs.networks.size() + rhs.networks.size());
+    lhs.networks.insert(lhs.networks.end(), rhs.networks.begin(), rhs.networks.end());
+    return lhs;
+}
+
 void configNets(const std::string& fd_model_path,
                 const std::string& lm_model_path,
                 const std::string& fr_model_path,
                 const std::string& ad_model_path,
-                      cv::gapi::ie::Params<nets::FaceDetector>&        det_net,
-                      cv::gapi::ie::Params<nets::LandmarksDetector>&   landm_net,
-                      cv::gapi::ie::Params<nets::FaceReidentificator>& reident_net,
-                      cv::gapi::ie::Params<nets::PersonDetActionRec>&  action_net) {
+                      cv::gapi::GNetPackage& networks) {
     if (!ad_model_path.empty()) {
        /** Create action detector net's parameters **/
        std::array<std::string, 7> outputBlobList;
           outputBlobList = isNetForSixActions(ad_model_path)
               ? outputBlobList = config::action_detector_6
               : outputBlobList =  config::action_detector_5;
-       action_net = cv::gapi::ie::Params<nets::PersonDetActionRec>{
+       auto action_net = cv::gapi::ie::Params<nets::PersonDetActionRec>{
            ad_model_path,
            GetBinPath(ad_model_path),
            FLAGS_d_act,
        }.cfgOutputLayers(outputBlobList);
+       networks += cv::gapi::networks(action_net);
     }
     if (!fd_model_path.empty()) {
         /** Create face detector net's parameters **/
-           det_net = cv::gapi::ie::Params<nets::FaceDetector>{
-               fd_model_path,
-               GetBinPath(fd_model_path),
-               FLAGS_d_fd,
-           }.cfgInputReshape("data",
-                            {1u, 3u, static_cast<size_t>(FLAGS_inh_fd), static_cast<size_t>(FLAGS_inw_fd)});
+        auto det_net = cv::gapi::ie::Params<nets::FaceDetector>{
+            fd_model_path,
+            GetBinPath(fd_model_path),
+            FLAGS_d_fd,
+        }.cfgInputReshape("data",
+                         {1u, 3u, static_cast<size_t>(FLAGS_inh_fd), static_cast<size_t>(FLAGS_inw_fd)});
+        networks += cv::gapi::networks(det_net);
     }
     if (!fd_model_path.empty() && !fr_model_path.empty() && !lm_model_path.empty()) {
         /** Create landmarks detector net's parameters **/
-        landm_net = cv::gapi::ie::Params<nets::LandmarksDetector>{
+        auto landm_net = cv::gapi::ie::Params<nets::LandmarksDetector>{
             lm_model_path,
             GetBinPath(lm_model_path),
             FLAGS_d_lm,
         };
         /** Create reidentification net's parameters **/
-        reident_net = cv::gapi::ie::Params<nets::FaceReidentificator>{
+        auto reident_net = cv::gapi::ie::Params<nets::FaceReidentificator>{
             fr_model_path,
             GetBinPath(fr_model_path),
             FLAGS_d_reid,
         };
+        networks += cv::gapi::networks(landm_net, reident_net);
     }
 }
 } // namespace config
 
 namespace preparation {
-void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector>&        face_net,
-                           const cv::gapi::ie::Params<nets::LandmarksDetector>&   landm_net,
-                           const cv::gapi::ie::Params<nets::FaceReidentificator>& reident_net,
+void processingFaceGallery(const cv::gapi::GNetPackage& gallery_networks,
                                  FaceRecognizerKernelInput& frec_kernel_input,
                                  std::vector<std::string>&  face_id_to_label_map) {
     // Face gallery processing
@@ -268,7 +291,7 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector>&      
     detection::FaceDetectionKernelInput reid_kernel_input;
     config::createFaceRegPtr(reid_kernel_input);
     if (!ids_list.empty()) {
-        /** Gallery graph of demo **/
+        /** ---------------- Gallery graph of demo ---------------- **/
         /** Input is one face from gallery **/
         cv::GMat in;
         cv::GArray<cv::Rect> rect;
@@ -301,9 +324,7 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector>&      
 
         /** Pipeline's input and outputs**/
         cv::GComputation gallery_pp(cv::GIn(in), cv::GOut(rect, embeddings));
-
-        auto gallery_networks = cv::gapi::networks(face_net, landm_net, reident_net);
-
+        /** ----------------                       ---------------- **/
         cv::FileStorage fs(ids_list, cv::FileStorage::Mode::READ);
         cv::FileNode fn = fs.root();
         int id = 0;

@@ -7,10 +7,8 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/gapi/garg.hpp>
 
-namespace cv {
-namespace gapi {
-namespace wip {
-class CustomCapSource : public IStreamSource
+namespace custom {
+class CustomCapSource : public cv::gapi::wip::IStreamSource
 {
 public:
     explicit CustomCapSource(const cv::VideoCapture& cap) : cap(cap) { prep(); }
@@ -45,11 +43,9 @@ protected:
         return true;
     }
 
-    virtual GMetaArg descr_of() const override {
+    virtual cv::GMetaArg descr_of() const override {
         GAPI_Assert(!first.empty());
         return cv::GMetaArg{ cv::descr_of(first) };
     }
 };
-} // namespace wip
-} // namespace gapi
-} // namespace cv
+} // namespace custom

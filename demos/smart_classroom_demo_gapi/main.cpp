@@ -14,27 +14,10 @@
 #include "initialize.hpp"
 #include "stream_source.hpp"
 
-bool ParseAndCheckCommandLine(int argc, char *argv[]) {
-    gflags::ParseCommandLineNonHelpFlags(&argc, &argv, true);
-    if (FLAGS_h) {
-        showUsage();
-        showAvailableDevices();
-        return false;
-    }
-    slog::info << "Parsing input parameters" << slog::endl;
-    if (FLAGS_i.empty()) {
-        throw std::logic_error("Parameter -i is not set");
-    }
-    if (FLAGS_m_act.empty() && FLAGS_m_fd.empty()) {
-        throw std::logic_error("At least one parameter -m_act or -m_fd must be set");
-    }
-    return true;
-}
-
 int main(int argc, char* argv[]) { 
     try {
         /** This demo covers 4 certain topologies and cannot be generalized **/
-        if (!ParseAndCheckCommandLine(argc, argv)) {
+        if (!util::ParseAndCheckCommandLine(argc, argv)) {
             return 0;
         }
 
@@ -54,7 +37,7 @@ int main(int argc, char* argv[]) {
         const auto frame_size = cv::Size(static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH)),
                                          static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT)));
 
-        /** Fill shared constants and tracker parameters **/
+        /** Fill shared constants and trackers parameters **/
         TrackerParams tracker_reid_params, tracker_action_params;
         ConstantParams const_params;
         std::tie(const_params, tracker_reid_params, tracker_action_params) =
@@ -63,16 +46,11 @@ int main(int argc, char* argv[]) {
                                  static_cast<int>(cap.get(cv::CAP_PROP_FPS)),
                                  static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT)));
 
-        /** Create default net's parameters **/
-        cv::gapi::ie::Params<nets::FaceDetector> det_net({}, {}, {});
-        cv::gapi::ie::Params<nets::LandmarksDetector> landm_net({}, {}, {});
-        cv::gapi::ie::Params<nets::FaceReidentificator> reident_net({}, {}, {});
-        cv::gapi::ie::Params<nets::PersonDetActionRec> action_net({}, {}, {});
+        /** Create net's package **/
+        cv::gapi::GNetPackage networks;
 
          /** Configure nets **/
-        config::configNets(fd_model_path, lm_model_path, fr_model_path, ad_model_path,
-                           det_net,       landm_net,     reident_net,   action_net);
-        auto networks = cv::gapi::networks(det_net, landm_net, reident_net, action_net);
+        config::configNets(fd_model_path, lm_model_path, fr_model_path, ad_model_path, networks);
 
         /** Configure and create action detector **/
         ActionDetectionKernelInput ad_kernel_input;
@@ -92,7 +70,7 @@ int main(int argc, char* argv[]) {
         /** Find identities metric for each face from gallery **/
         FaceRecognizerKernelInput frec_kernel_input;
         std::vector<std::string> face_id_to_label_map;
-        preparation::processingFaceGallery(det_net, landm_net, reident_net, frec_kernel_input, face_id_to_label_map);
+        preparation::processingFaceGallery(networks, frec_kernel_input, face_id_to_label_map);
         if (fd_model_path.empty() && fr_model_path.empty() && lm_model_path.empty()) {
             slog::warn << "Face recognition models are disabled!" << slog::endl;
             if (const_params.actions_type == TEACHER) {
@@ -105,7 +83,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        /** Main graph of demo **/
+        /** ---------------- Main graph of demo ---------------- **/
         cv::GMat in;
         cv::GMat pp_frame = cv::gapi::copy(in);
         /** Initialize empty GArrays **/
@@ -194,8 +172,8 @@ int main(int argc, char* argv[]) {
                                                         TrackerParamsPack{ tracker_reid_params, tracker_action_params },
                                                         LoggerParams{ FLAGS_r }));
 
-        /** The execution part **/
-        cc.setSource(cv::gin(cv::gapi::wip::make_src<cv::gapi::wip::CustomCapSource>(cap)));
+        /** ---------------- The execution part ---------------- **/
+        cc.setSource<custom::CustomCapSource>(cap);
 
         /** Service constants **/
         float wait_time_ms = 0.f;
@@ -261,7 +239,7 @@ int main(int argc, char* argv[]) {
                     /** TOP_K part. SPACE_KEY is pushed, monitoring enabled
                      *  Compile and start graph **/
                     if (!cap.grab()) break;
-                    cc.setSource(cv::gin(cv::gapi::wip::make_src<cv::gapi::wip::CustomCapSource>(cap)));
+                    cc.setSource<custom::CustomCapSource>(cap);
                     cc.start();
                 }
                 if (!cc.pull(std::move(out_vector))) {
@@ -313,7 +291,7 @@ int main(int argc, char* argv[]) {
                 /** Loop **/
                 cc.stop();
                 cap.set(cv::CAP_PROP_POS_FRAMES, 0.);
-                cc.setSource(cv::gin(cv::gapi::wip::make_src<cv::gapi::wip::CustomCapSource>(cap)));
+                cc.setSource<custom::CustomCapSource>(cap);
                 cc.start();
             }
             if (FLAGS_limit >= 0 && (work_num_frames > static_cast<size_t>(FLAGS_limit))) {

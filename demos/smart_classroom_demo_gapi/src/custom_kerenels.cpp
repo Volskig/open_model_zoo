@@ -33,24 +33,24 @@ GAPI_OCV_KERNEL(OCVFaceDetectorPostProc, custom::FaceDetectorPostProc) {
     static void run(const cv::Mat& in,
                     const std::vector<cv::Rect>& rois,
                     const detection::FaceDetectionKernelInput &face_inp,
-                    std::vector<cv::Rect> &out_rects) {
+                    std::vector<cv::Rect>& out_rects) {
         face_inp.ptr->truncateRois(in, rois, out_rects);
     }
 };
 
 GAPI_OCV_KERNEL(OCVGetRectFromImage, custom::GetRectFromImage) {
-    static void run(const cv::Mat &in_image,
-                    std::vector<cv::Rect> &out_rects) {
+    static void run(const cv::Mat& in_image,
+                    std::vector<cv::Rect>& out_rects) {
         out_rects.emplace_back(cv::Rect(0, 0, in_image.cols, in_image.rows));
     }
 };
 
 GAPI_OCV_KERNEL(OCVAlignFacesForReidentification,
                 custom::AlignFacesForReidentification) {
-    static void run(const cv::Mat &in,
-                    const std::vector<cv::Mat> &landmarks,
-                    const std::vector<cv::Rect> &face_rois,
-                          std::vector<cv::Mat> &out_images) {
+    static void run(const cv::Mat& in,
+                    const std::vector<cv::Mat>& landmarks,
+                    const std::vector<cv::Rect>& face_rois,
+                          std::vector<cv::Mat>& out_images) {
         cv::Mat out_image = in.clone();
         out_images.clear();
         for (const auto& rect : face_rois) {
@@ -74,16 +74,16 @@ GAPI_OCV_KERNEL(OCVAlignFacesForReidentification,
 };
 
 GAPI_OCV_KERNEL(OCVPersonDetActionRecPostProc, custom::PersonDetActionRecPostProc) {
-    static void run(const cv::Mat &in_frame,
-                    const cv::Mat &in_ssd_local,
-                    const cv::Mat &in_ssd_conf,
-                    const cv::Mat &in_ssd_priorbox,
-                    const cv::Mat &in_ssd_anchor1,
-                    const cv::Mat &in_ssd_anchor2,
-                    const cv::Mat &in_ssd_anchor3,
-                    const cv::Mat &in_ssd_anchor4,
-                    const ActionDetectionKernelInput &action_in,
-                    DetectedActions &out_detections) {
+    static void run(const cv::Mat& in_frame,
+                    const cv::Mat& in_ssd_local,
+                    const cv::Mat& in_ssd_conf,
+                    const cv::Mat& in_ssd_priorbox,
+                    const cv::Mat& in_ssd_anchor1,
+                    const cv::Mat& in_ssd_anchor2,
+                    const cv::Mat& in_ssd_anchor3,
+                    const cv::Mat& in_ssd_anchor4,
+                    const ActionDetectionKernelInput& action_in,
+                    DetectedActions& out_detections) {
         out_detections = action_in.ptr->fetchResults({in_ssd_local,
                                                       in_ssd_conf,
                                                       in_ssd_priorbox,
@@ -98,18 +98,18 @@ GAPI_OCV_KERNEL(OCVPersonDetActionRecPostProc, custom::PersonDetActionRecPostPro
 GAPI_OCV_KERNEL_ST(OCVGetActionTopHandsDetectionResult,
                    custom::GetActionTopHandsDetectionResult,
                    Tracker) {
-    static void setup(const cv::GMatDesc &,
-                      const cv::GArrayDesc &,
-                      std::shared_ptr<Tracker> &tracker_action,
-                      const cv::GCompileArgs &compileArgs) {
+    static void setup(const cv::GMatDesc&,
+                      const cv::GArrayDesc&,
+                      std::shared_ptr<Tracker>& tracker_action,
+                      const cv::GCompileArgs& compileArgs) {
         auto trParamsPack = cv::gapi::getCompileArg<TrackerParamsPack>(compileArgs)
             .value_or(TrackerParamsPack{});
         tracker_action = std::make_shared<Tracker>(trParamsPack.tracker_action_params);
     }
-    static void run(const cv::Mat &frame,
-                    const DetectedActions &actions,
-                    TrackedObjects &tracked_actions,
-                    Tracker &tracker_action) {
+    static void run(const cv::Mat& frame,
+                    const DetectedActions& actions,
+                    TrackedObjects& tracked_actions,
+                    Tracker& tracker_action) {
         TrackedObjects tracked_action_objects;
         for (const auto& action : actions) {
             tracked_action_objects.emplace_back(action.rect, action.detection_conf, action.label);
@@ -120,28 +120,28 @@ GAPI_OCV_KERNEL_ST(OCVGetActionTopHandsDetectionResult,
 };
 
 GAPI_OCV_KERNEL_ST(OCVGetRecognitionResult, custom::GetRecognitionResult, TrackerState) {
-    static void setup(const cv::GMatDesc &,
-                      const cv::GArrayDesc &,
-                      const cv::GArrayDesc &,
-                      const cv::GArrayDesc &,
-                      const FaceRecognizerKernelInput &,
-                      const ConstantParams &,
-                      std::shared_ptr<TrackerState> &trackers,
-                      const cv::GCompileArgs &compileArgs) {
+    static void setup(const cv::GMatDesc&,
+                      const cv::GArrayDesc&,
+                      const cv::GArrayDesc&,
+                      const cv::GArrayDesc&,
+                      const FaceRecognizerKernelInput&,
+                      const ConstantParams&,
+                      std::shared_ptr<TrackerState>& trackers,
+                      const cv::GCompileArgs& compileArgs) {
         auto trParamsPack = cv::gapi::getCompileArg<TrackerParamsPack>(compileArgs)
             .value_or(TrackerParamsPack{});
         trackers = std::make_shared<TrackerState>(trParamsPack.tracker_reid_params,
             trParamsPack.tracker_action_params);
     }
-    static void run(const cv::Mat &frame,
-                    const std::vector<cv::Rect> &faces,
-                    const DetectedActions &actions,
-                    const std::vector<cv::Mat> &embeddings,
-                    const FaceRecognizerKernelInput &face_rec,
-                    const ConstantParams &params,
-                    TrackedObjects &tracked_actions,
-                    FaceTrack &face_track,
-                    size_t &num_frames,
+    static void run(const cv::Mat& frame,
+                    const std::vector<cv::Rect>& faces,
+                    const DetectedActions& actions,
+                    const std::vector<cv::Mat>& embeddings,
+                    const FaceRecognizerKernelInput& face_rec,
+                    const ConstantParams& params,
+                    TrackedObjects& tracked_actions,
+                    FaceTrack& face_track,
+                    size_t& num_frames,
                     TrackerState &trackers) {
         TrackedObjects tracked_face_objects, tracked_action_objects, tracked_faces;
         std::vector<Track> face_tracks;
@@ -173,29 +173,29 @@ GAPI_OCV_KERNEL_ST(OCVGetRecognitionResult, custom::GetRecognitionResult, Tracke
 };
 
 GAPI_OCV_KERNEL_ST(OCVRecognizeResultPostProc, custom::RecognizeResultPostProc, PostProcState) {
-    static void setup(const cv::GMatDesc &,
-                      const cv::GArrayDesc &,
-                      const cv::GOpaqueDesc &,
-                      const cv::GArrayDesc &,
-                      const cv::GOpaqueDesc &,
-                      const ConstantParams &,
-                      std::shared_ptr<PostProcState> &post_proc,
-                      const cv::GCompileArgs &compileArgs) {
+    static void setup(const cv::GMatDesc&,
+                      const cv::GArrayDesc&,
+                      const cv::GOpaqueDesc&,
+                      const cv::GArrayDesc&,
+                      const cv::GOpaqueDesc&,
+                      const ConstantParams&,
+                      std::shared_ptr<PostProcState>& post_proc,
+                      const cv::GCompileArgs& compileArgs) {
         auto logger_params = cv::gapi::getCompileArg<LoggerParams>(compileArgs)
             .value_or(LoggerParams{});
         post_proc = std::make_shared<PostProcState>(logger_params);
     }
-    static void run(const cv::Mat &frame,
-                    const TrackedObjects &tracked_actions,
-                    const FaceTrack &face_track,
-                    const std::vector<std::string> face_id_to_label_map,
-                    const size_t &work_num_frames,
-                    const ConstantParams &params,
-                    DrawingElements &drawing_elements,
-                    std::string &stream_log,
-                    std::string &stat_log,
-                    std::string &det_log,
-                    PostProcState &post_proc) {
+    static void run(const cv::Mat& frame,
+                    const TrackedObjects& tracked_actions,
+                    const FaceTrack& face_track,
+                    const std::vector<std::string>& face_id_to_label_map,
+                    const size_t& work_num_frames,
+                    const ConstantParams& params,
+                    DrawingElements& drawing_elements,
+                    std::string& stream_log,
+                    std::string& stat_log,
+                    std::string& det_log,
+                    PostProcState& post_proc) {
         int teacher_track_id = -1;
         const int default_action_index = -1;
         std::map<int, int> frame_face_obj_id_to_action;
@@ -293,10 +293,10 @@ GAPI_OCV_KERNEL_ST(OCVRecognizeResultPostProc, custom::RecognizeResultPostProc, 
 };
 
 GAPI_OCV_KERNEL(OCVBoxesAndLabels, custom::BoxesAndLabels) {
-    static void run(const cv::Mat  &in,
-                    const DrawingElements &drawing_elements,
-                    const ConstantParams &params,
-                          std::vector<cv::gapi::wip::draw::Prim> &out_prims) {
+    static void run(const cv::Mat& in,
+                    const DrawingElements& drawing_elements,
+                    const ConstantParams& params,
+                          std::vector<cv::gapi::wip::draw::Prim>& out_prims) {
         out_prims.clear();
         const auto rct = [&params](const cv::Rect &rc, const cv::Scalar &clr) {
             cv::Rect rect_to_draw = rc;
@@ -333,19 +333,19 @@ GAPI_OCV_KERNEL(OCVBoxesAndLabels, custom::BoxesAndLabels) {
 };
 
 GAPI_OCV_KERNEL_ST(OCVTopAction, custom::TopAction, TopKState) {
-    static void setup(const cv::GMatDesc &,
-                      const cv::GArrayDesc &,
-                      const ConstantParams &,
-                      std::shared_ptr<TopKState> &top_k_st,
-                      const cv::GCompileArgs &compileArgs) {
+    static void setup(const cv::GMatDesc&,
+                      const cv::GArrayDesc&,
+                      const ConstantParams&,
+                      std::shared_ptr<TopKState>& top_k_st,
+                      const cv::GCompileArgs& compileArgs) {
         top_k_st = std::make_shared<TopKState>();
     }
-    static void run(const cv::Mat  &in,
-                    const TrackedObjects &tracked_actions,
-                    const ConstantParams &params,
-                    DrawingElements &drawing_elements,
-                    cv::Mat &top_k,
-                    TopKState &top_k_st) {
+    static void run(const cv::Mat& in,
+                    const TrackedObjects& tracked_actions,
+                    const ConstantParams& params,
+                    DrawingElements& drawing_elements,
+                    cv::Mat& top_k,
+                    TopKState& top_k_st) {
         if (static_cast<int>(top_k_st.top_k_obj_ids.size()) < params.top_flag) {
             for (const auto& action : tracked_actions) {
                 if (action.label == params.top_action_id && top_k_st.top_k_obj_ids.count(action.object_id) == 0) {

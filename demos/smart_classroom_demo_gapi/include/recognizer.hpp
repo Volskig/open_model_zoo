@@ -39,7 +39,7 @@ public:
             return std::vector<int>(faces.size(), EmbeddingsGallery::unknown_id);
         }
         for (auto & emb : embeddings) {
-            emb = emb.reshape(1, { 256, 1 });
+            emb = emb.reshape(1, { static_cast<int>(emb.total()), 1 });
         }
         return face_gallery.GetIDsByEmbeddings(embeddings);
     }

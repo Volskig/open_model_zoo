@@ -307,7 +307,7 @@ void processingFaceGallery(const cv::gapi::ie::Params<nets::FaceDetector>&      
                     !(out_rect.size() > 1) &&
                     (out_rect[0].width > FLAGS_min_size_fr) &&
                     (out_rect[0].height > FLAGS_min_size_fr)) {
-                    out_embeddings.emplace_back(emb.front().reshape(1, { 256, 1 }));
+                    out_embeddings.emplace_back(emb.front().reshape(1, { static_cast<int>(emb.front().total()), 1 }));
                     idx_to_id.emplace_back(id);
                     identities.emplace_back(out_embeddings, label, id++);
                 }

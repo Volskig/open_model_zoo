@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,8 +9,6 @@
 #include <vector>
 
 #include <opencv2/core/core.hpp>
-
-#include "cnn.hpp"
 
 /**
 * @brief Class for detection with action info
@@ -50,32 +48,12 @@ struct SSDHead {
     SSDHead(int step, const std::vector<cv::Size2f>& anchors) : step(step), anchors(anchors) {}
 };
 using SSDHeads = std::vector<SSDHead>;
-
 /**
 * @brief Config for the Action Detection model
 */
-struct ActionDetectorConfig : public CnnConfig {
-    explicit ActionDetectorConfig(const std::string& path_to_model)
-        : CnnConfig(path_to_model) {}
-
-    /** @brief Name of output blob with location info */
-    std::string old_loc_blob_name{"mbox_loc1/out/conv/flat"};
-    /** @brief Name of output blob with detection confidence info */
-    std::string old_det_conf_blob_name{"mbox_main_conf/out/conv/flat/softmax/flat"};
-    /** @brief Prefix of name of output blob with action confidence info */
-    std::string old_action_conf_blob_name_prefix{"out/anchor"};
-    /** @brief Name of output blob with priorbox info */
-    std::string old_priorbox_blob_name{"mbox/priorbox"};
-
-    /** @brief Name of output blob with location info */
-    std::string new_loc_blob_name{"ActionNet/out_detection_loc"};
-    /** @brief Name of output blob with detection confidence info */
-    std::string new_det_conf_blob_name{"ActionNet/out_detection_conf"};
-    /** @brief Prefix of name of output blob with action confidence info */
-    std::string new_action_conf_blob_name_prefix{"ActionNet/action_heads/out_head_"};
-    /** @brief Suffix of name of output blob with action confidence info */
-    std::string new_action_conf_blob_name_suffix{"_anchor_"};
-
+struct ActionDetectorConfig {
+    /** @brief Person detection action recognition 0006 network enable flag */
+    bool net_with_six_actions = false;
     /** @brief Scale parameter for Soft-NMS algorithm */
     float nms_sigma = 0.6f;
     /** @brief Threshold for detected objects */
@@ -96,8 +74,10 @@ struct ActionDetectorConfig : public CnnConfig {
     std::vector<int> new_anchors{1, 4};
     /** @brief Number of actions to detect */
     size_t num_action_classes = 3;
-    /** @brief Async execution flag */
-    bool is_async = true;
+    /** @brief Input image size height*/
+    int input_height = 0;
+    /** @brief Input image size width*/
+    int input_width = 0;
     /** @brief  SSD bbox encoding variances */
     float variances[4]{0.1f, 0.1f, 0.2f, 0.2f};
     SSDHeads new_det_heads{{8,  {{26.17863728f, 58.670372f}}},
@@ -107,26 +87,13 @@ struct ActionDetectorConfig : public CnnConfig {
                                  {93.5070856f, 201.107692f}}}};
 };
 
-
-class ActionDetection : public AsyncDetection<DetectedAction>, public BaseCnnDetection {
+class ActionDetection  {
 public:
     explicit ActionDetection(const ActionDetectorConfig& config);
 
-    void submitRequest() override;
-    void enqueue(const cv::Mat &frame) override;
-    void wait() override { BaseCnnDetection::wait(); }
-    void printPerformanceCounts(const std::string &fullDeviceName) override {
-        BaseCnnDetection::printPerformanceCounts(fullDeviceName);
-    }
-    DetectedActions fetchResults() override;
-
+    DetectedActions fetchResults(const std::vector<cv::Mat> &ssd_results, const cv::Mat &in_frame);
 private:
     ActionDetectorConfig config_;
-    InferenceEngine::ExecutableNetwork net_;
-    std::string input_name_;
-    InferenceEngine::BlobMap outputs_;
-
-    int enqueued_frames_ = 0;
     float width_ = 0;
     float height_ = 0;
     bool new_network_ = false;
@@ -204,7 +171,7 @@ private:
     * @brief Carry out Soft Non-Maximum Suppression algorithm under detected actions
     *
     * @param detections Detected actions
-    * @param sigma Scale parameter
+    * @param sigma Scale paramter
     * @param top_k Number of top-score bboxes
     * @param min_det_conf Minimum detection confidence
     * @param out_indices Out indices of valid detections
@@ -214,4 +181,8 @@ private:
                                const int top_k,
                                const float min_det_conf,
                                std::vector<int>* out_indices) const;
+};
+
+struct ActionDetectionKernelInput {
+    std::shared_ptr<ActionDetection> ptr;
 };

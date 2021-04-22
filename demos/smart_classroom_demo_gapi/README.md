@@ -1,4 +1,4 @@
-# Smart Classroom C++ Demo
+# G-API. Smart Classroom C++ Demo
 
 The demo shows an example of joint usage of several neural networks to detect student actions (sitting, standing, raising hand for the `person-detection-action-recognition-0005` model and sitting, writing, raising hand, standing, turned around, lie on the desk for the `person-detection-action-recognition-0006` model) and recognize people by faces in the classroom environment. The demo uses Async API for action and face detection networks. It allows to parallelize execution of face recognition and detection: while face recognition is running on one accelerator, face and action detection could be performed on another. You can use a set of the following pre-trained models with the demo:
 
@@ -28,12 +28,12 @@ To recognize faces on a frame, the demo needs a gallery of reference images. Eac
 
 Running the application with the `-h` option yields the following usage message:
 ```
-./smart_classroom_demo -h
+./smart_classroom_demo_gapi -h
 InferenceEngine:
     API version ............ <version>
     Build .................. <number>
 
-smart_classroom_demo [OPTION]
+smart_classroom_demo_gapi [OPTION]
 Options:
 
     -h                             Print a usage message.
@@ -44,16 +44,12 @@ Options:
     -m_fd '<path>'                 Required. Path to the Face Detection model (.xml) file.
     -m_lm '<path>'                 Required. Path to the Facial Landmarks Regression Retail model (.xml) file.
     -m_reid '<path>'               Required. Path to the Face Reidentification Retail model (.xml) file.
-    -l '<absolute_path>'           Optional. For CPU custom layers, if any. Absolute path to a shared library with the kernels implementation.
-          Or
-    -c '<absolute_path>'           Optional. For GPU custom kernels, if any. Absolute path to an .xml file with the kernels description.
-    -d_act '<device>'              Optional. Specify the target device for Person/Action Detection Retail (the list of available devices is shown below). Default value is CPU. Use "-d HETERO:<comma-separated_devices_list>" format to specify HETERO plugin. The application looks for a suitable plugin for the specified device.
-    -d_fd '<device>'               Optional. Specify the target device for Face Detection Retail (the list of available devices is shown below). Default value is CPU. Use "-d HETERO:<comma-separated_devices_list>" format to specify HETERO plugin. The application looks for a suitable plugin for the specified device.
-    -d_lm '<device>'               Optional. Specify the target device for Landmarks Regression Retail (the list of available devices is shown below). Default value is CPU. Use "-d HETERO:<comma-separated_devices_list>" format to specify HETERO plugin. The application looks for a suitable plugin for the specified device.
-    -d_reid '<device>'             Optional. Specify the target device for Face Reidentification Retail (the list of available devices is shown below). Default value is CPU. Use "-d HETERO:<comma-separated_devices_list>" format to specify HETERO plugin. The application looks for a suitable plugin for the specified device.
+    -d_act '<device>'              Optional. Specify the target device for Person/Action Detection Retail (the list of available devices is shown below). Default value is CPU.
+    -d_fd '<device>'               Optional. Specify the target device for Face Detection Retail (the list of available devices is shown below). Default value is CPU.
+    -d_lm '<device>'               Optional. Specify the target device for Landmarks Regression Retail (the list of available devices is shown below). Default value is CPU.
+    -d_reid '<device>'             Optional. Specify the target device for Face Reidentification Retail (the list of available devices is shown below). Default value is CPU.
     -out_v  '<path>'               Optional. File to write output video with visualization to.
     -greedy_reid_matching          Optional. Use faster greedy matching algorithm in face reid.
-    -pc                            Optional. Enables per-layer performance statistics.
     -r                             Optional. Output Inference results as raw values.
     -ad                            Optional. Output file name to save per-person action statistics in.
     -t_ad                          Optional. Probability threshold for person/action detection.
@@ -89,7 +85,7 @@ To run the demo, you can use public or pre-trained models. To download the pre-t
 
 Example of a valid command line to run the application with pre-trained models for recognizing students actions:
 ```sh
-./smart_classroom_demo -m_act <path_to_model>/person-detection-action-recognition-0005.xml \
+./_smart_classroom_demo_gapi -m_act <path_to_model>/person-detection-action-recognition-0005.xml \
                        -m_fd <path_to_model>/face-detection-adas-0001.xml \
                        -i <path_to_video>
 ```
@@ -97,7 +93,7 @@ Example of a valid command line to run the application with pre-trained models f
 
 Example of a valid command line to run the application for recognizing first raised-hand students:
 ```sh
-./smart_classroom_demo -m_act <path_to_model>/person-detection-raisinghand-recognition-0001.xml \
+./smart_classroom_demo_gapi -m_act <path_to_model>/person-detection-raisinghand-recognition-0001.xml \
                        -a_top <number of first raised-hand students> \
                        -i <path_to_video>
 ```

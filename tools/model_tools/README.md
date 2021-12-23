@@ -34,20 +34,25 @@ Installation from source is as follows:
 
 1. Install Python (version 3.6 or higher), [setuptools](https://pypi.org/project/setuptools/):
 
+2. Install [openvino-dev](https://pypi.org/project/openvino-dev/) python package of the corresponding version:
+
+```sh
+pip install openvino-dev[caffe,caffe2,onnx,tensorflow2,pytorch,mxnet]
+```
+> **NOTE**: For example, if you are using OMZ Tools for 2021.4.2 then install openvino-dev==2021.4.2.
+
 2. Install the tools with the following command:
 
 ```sh
-python setup.py install
+pip install --upgrade pip
+pip install .
 ```
 
 > **NOTE**: On Linux and macOS, you may need to type `python3` instead of `python`. You may also need to [install pip](https://pip.pypa.io/en/stable/installation/).
 > For example, on Ubuntu execute the following command to get pip installed: `sudo apt install python3-pip`.
+> If you are using pip version lower than 21.3, you also need to set OMZ_ROOT variable: `export OMZ_ROOT=<omz_dir>`
 
-For the model converter, you will also need to install the OpenVINO&trade;
-toolkit and the prerequisite libraries for Model Optimizer. See the
-[OpenVINO toolkit documentation](https://docs.openvinotoolkit.org/) for details.
-
-To convert models from certain frameworks, you will also need to install
+To convert models from certain frameworks, you may also need to install
 additional dependencies.
 
 For models from Caffe2:
@@ -284,8 +289,8 @@ The script will attempt to locate Model Optimizer using several methods:
    omz_converter --all --mo my/openvino/path/model_optimizer/mo.py
    ```
 
-2. Otherwise, if the selected Python executable can import the `mo` package,
-   then that package will be used.
+2. Otherwise, if the selected Python executable can find the `mo` entrypoint,
+   then it will be used.
 
 3. Otherwise, if the OpenVINO&trade; toolkit's `setupvars.sh`/`setupvars.bat`
    script has been executed, the environment variables set by that script will
@@ -380,8 +385,8 @@ The script will attempt to locate Post-Training Optimization Toolkit using sever
    omz_quantizer --all --dataset_dir <DATASET_DIR> --pot my/openvino/path/post_training_optimization_toolkit/main.py
    ```
 
-2. Otherwise, if the selected Python executable can import the `pot` package,
-   then that package will be used.
+2. Otherwise, if the selected Python executable can find the `pot` entrypoint,
+   then it will be used.
 
 3. Otherwise, if the OpenVINO&trade; toolkit's `setupvars.sh`/`setupvars.bat`
    script has been executed, the environment variables set by that script will

@@ -23,13 +23,13 @@ from openvino.model_zoo import _common
 from openvino.model_zoo.download_engine import file_source, postprocessing, validation
 
 RE_MODEL_NAME = re.compile(r'[0-9a-zA-Z._-]+')
-RE_SHA256SUM = re.compile(r'[0-9a-fA-F]{64}')
+RE_SHA384SUM = re.compile(r'[0-9a-fA-F]{96}')
 
 class ModelFile:
-    def __init__(self, name, size, sha256, source):
+    def __init__(self, name, size, sha384, source):
         self.name = name
         self.size = size
-        self.sha256 = sha256
+        self.sha384 = sha384
         self.source = source
 
     @classmethod
@@ -39,18 +39,18 @@ class ModelFile:
         with validation.deserialization_context('In file "{}"'.format(name)):
             size = validation.validate_nonnegative_int('"size"', file['size'])
 
-            sha256_str = validation.validate_string('"sha256"', file['sha256'])
+            sha384_str = validation.validate_string('"sha384"', file['sha384'])
 
-            if not RE_SHA256SUM.fullmatch(sha256_str):
+            if not RE_SHA384SUM.fullmatch(sha384_str):
                 raise validation.DeserializationError(
-                    '"sha256": got invalid hash {!r}'.format(sha256_str))
+                    '"sha384": got invalid hash {!r}'.format(sha384_str))
 
-            sha256 = bytes.fromhex(sha256_str)
+            sha384 = bytes.fromhex(sha384_str)
 
             with validation.deserialization_context('"source"'):
                 source = file_source.FileSource.deserialize(file['source'])
 
-            return cls(name, size, sha256, source)
+            return cls(name, size, sha384, source)
 
 class Model:
     def __init__(
@@ -188,6 +188,8 @@ def load_models(models_root, args):
 
     composite_models = []
 
+    schema = _common.get_schema()
+
     for composite_model_config in sorted(models_root.glob('**/composite-model.yml')):
         composite_model_name = composite_model_config.parent.name
         with validation.deserialization_context('In model "{}"'.format(composite_model_name)):
@@ -213,6 +215,8 @@ def load_models(models_root, args):
                 validation.deserialization_context('In config "{}"'.format(config_path)):
 
             model = yaml.safe_load(config_file)
+            if not schema.check(model):
+                raise validation.DeserializationError('Configuration file check was\'t successful.')
 
             for bad_key in ['name', 'subdirectory']:
                 if bad_key in model:

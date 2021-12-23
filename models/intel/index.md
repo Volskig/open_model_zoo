@@ -86,6 +86,7 @@ Age/Gender recognition after Face Detection).
 | [vehicle-attributes-recognition-barrier-0042](./vehicle-attributes-recognition-barrier-0042/README.md) | 0.462 | 11.177 |
 | [emotions-recognition-retail-0003](./emotions-recognition-retail-0003/README.md) | 0.126 | 2.483 |
 | [landmarks-regression-retail-0009](./landmarks-regression-retail-0009/README.md) | 0.021 | 0.191 |
+| [facial-landmarks-98-detection-0001](./facial-landmarks-98-detection-0001/README.md) | 0.6 | 9.66 |
 | [facial-landmarks-35-adas-0002](./facial-landmarks-35-adas-0002/README.md)       | 0.042 | 4.595 |
 | [person-attributes-recognition-crossroad-0230](./person-attributes-recognition-crossroad-0230/README.md) | 0.174 | 0.735 |
 | [person-attributes-recognition-crossroad-0234](./person-attributes-recognition-crossroad-0234/README.md) | 2.167 | 23.510 |
@@ -200,6 +201,9 @@ Deep Learning models for text recognition in various applications.
 | [text-recognition-0015](./text-recognition-0015/README.md)                                 |         |       |
 | encoder | 12.4 | 398 |
 | decoder | 0.03 | 4.33 |
+| [text-recognition-0016](./text-recognition-0016/README.md)                                 |         |       |
+| encoder | 9.27 | 88.1 |
+| decoder | 0.08 | 4.28 |
 | [handwritten-score-recognition-0003](./handwritten-score-recognition-0003/README.md)       | 0.792   | 5.555 |
 | [handwritten-japanese-recognition-0001](./handwritten-japanese-recognition-0001/README.md) | 117.136 | 15.31 |
 | [handwritten-simplified-chinese-recognition-0001](./handwritten-simplified-chinese-recognition-0001/README.md) | 134.513 | 17.270 |
@@ -298,6 +302,8 @@ Deep Learning models for speech synthesis (mel spectrogram generation and wave f
 |   text-to-speech-en-multi-0001-duration-prediction                 | 28.75 | 26.18 |
 |   text-to-speech-en-multi-0001-regression                          | 7.81  | 5.12  |
 |   text-to-speech-en-multi-0001-generation                          | 48.38 | 12.77 |
+
+## Speech Noise Suppression
 
 Deep Learning models for noise suppression.
 

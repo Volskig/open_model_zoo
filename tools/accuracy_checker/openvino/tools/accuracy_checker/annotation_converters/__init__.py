@@ -121,6 +121,10 @@ from .open_images_converter import OpenImagesDetectionConverter
 from .calgarycampinas import KSpaceMRIConverter
 from .amazon import AmazonProductData
 from .wgs import WGSTFRecords, WGSPickleRecords
+from .sentence_similarity import SentenceSimilarityConverter
+from .common_text_recognition import CommonTextRecognition
+from .coco_facial_landmarks import COCOFacialLandmarksRecognitionConverter
+from .speaker_identification import SpeakerReIdentificationDatasetConverter
 
 __all__ = [
     'BaseFormatConverter',
@@ -242,4 +246,8 @@ __all__ = [
     'AmazonProductData',
     'WGSTFRecords',
     'WGSPickleRecords',
+    'SentenceSimilarityConverter',
+    'CommonTextRecognition',
+    'COCOFacialLandmarksRecognitionConverter',
+    'SpeakerReIdentificationDatasetConverter',
 ]

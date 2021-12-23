@@ -22,6 +22,7 @@ import numpy as np
 from ..adapters import Adapter
 from ..config import NumberField, BoolField, StringField, ListField, PathField
 from ..representation import CharacterRecognitionPrediction
+from ..utils import read_txt
 
 # Will import kenlm later if necessary
 kenlm = None
@@ -37,8 +38,8 @@ def require_kenlm():
     if kenlm is None:
         try:
             import kenlm as kenlm_imported  # pylint: disable=import-outside-toplevel
-        except ImportError:
-            raise ValueError("kenlm is not installed. Please install it with 'pip install pypi-kenlm'.")
+        except ImportError as import_err:
+            raise ValueError("kenlm is not installed. Please install it with 'pip install pypi-kenlm'.") from import_err
         kenlm = kenlm_imported
 
 
@@ -50,11 +51,11 @@ def require_ctcdecode_numpy():
     if ctcdecode_numpy is None:
         try:
             import ctcdecode_numpy as ctcdecode_numpy_imported  # pylint: disable=import-outside-toplevel
-        except ImportError:
+        except ImportError as impoer_err:
             raise ValueError(
                 "To use ctc_beam_search_decoder_with_lm adapter you need ctcdecode_numpy installed. "
                 "Please see open_model_zoo/demos/speech_recognition_deepspeech_demo/python/README.md for instructions."
-            )
+            ) from impoer_err
         ctcdecode_numpy = ctcdecode_numpy_imported
 
 
@@ -90,10 +91,11 @@ class CTCBeamSearchDecoder(Adapter):
         self.classification_out = self.get_value_from_config('classification_out')
         self.alphabet = ' ' + string.ascii_lowercase + '\'-'
         self.alphabet = self.alphabet.encode('ascii').decode('utf-8')
+        self.output_verified = False
 
     def process(self, raw, identifiers=None, frame_meta=None):
-        if self.classification_out is not None:
-            self.output_blob = self.classification_out
+        if not self.output_verified:
+            self.select_output_blob(raw)
         multi_infer = frame_meta[-1].get('multi_infer', False) if frame_meta else False
 
         raw_output = self._extract_predictions(raw, frame_meta)
@@ -194,6 +196,15 @@ class CTCBeamSearchDecoder(Adapter):
 
         return res
 
+    def select_output_blob(self, outputs):
+        self.output_verified = True
+        if self.classification_out:
+            self.classification_out = self.check_output_name(self.classification_out, outputs)
+            return
+        super().select_output_blob(outputs)
+        self.classification_out = self.output_blob
+        return
+
 
 class CTCGreedyDecoder(Adapter):
     __provider__ = 'ctc_greedy_decoder'
@@ -216,6 +227,16 @@ class CTCGreedyDecoder(Adapter):
         self.alphabet = self.get_value_from_config('alphabet') or ' ' + string.ascii_lowercase + '\'-'
         self.softmaxed_probabilities = self.launcher_config.get('softmaxed_probabilities')
         self.classification_out = self.get_value_from_config('classification_out')
+        self.output_verified = False
+
+    def select_output_blob(self, outputs):
+        self.output_verified = True
+        if self.classification_out:
+            self.classification_out = self.check_output_name(self.classification_out, outputs)
+            return
+        super().select_output_blob(outputs)
+        self.classification_out = self.output_blob
+        return
 
     @staticmethod
     def _extract_predictions(outputs_list, meta):
@@ -231,8 +252,8 @@ class CTCGreedyDecoder(Adapter):
         return output_map
 
     def process(self, raw, identifiers, frame_meta):
-        if self.classification_out is not None:
-            self.output_blob = self.classification_out
+        if not self.output_verified:
+            self.select_output_blob(raw)
         multi_infer = frame_meta[-1].get('multi_infer', False) if frame_meta else False
 
         raw_output = self._extract_predictions(raw, frame_meta)
@@ -356,6 +377,16 @@ class CTCBeamSearchDecoderWithLm(Adapter):
         if self.sep not in self.alphabet  and  self.sep != '':
             raise ValueError("\"sep\" must be in alphabet or be an empty string")
         self.init_lm(lm_file, lm_vocabulary_offset, lm_vocabulary_length)
+        self.output_verified = False
+
+    def select_output_blob(self, outputs):
+        self.output_verified = True
+        if self.probability_out:
+            self.probability_out = self.check_output_name(self.probability_out, outputs)
+            return
+        super().select_output_blob(outputs)
+        self.probability_out = self.output_blob
+        return
 
     @staticmethod
     def load_python_modules():
@@ -376,6 +407,8 @@ class CTCBeamSearchDecoderWithLm(Adapter):
                 raise ValueError("Need lm_alpha and lm_beta to use lm_file")
 
     def process(self, raw, identifiers=None, frame_meta=None):
+        if not self.output_verified:
+            self.select_output_blob(raw)
         log_prob = self._extract_predictions(raw, frame_meta)
         log_prob = np.concatenate(list(log_prob))
         if not self.logarithmic_prob:
@@ -689,24 +722,40 @@ class DumbDecoder(Adapter):
     def parameters(cls):
         parameters = super().parameters()
         parameters.update({
+            'vocabulary_file': PathField(optional=True, description='Alphabet as vocab file'),
             'alphabet': ListField(optional=True, default=None, value_type=str, allow_empty=False,
                                   description="Alphabet as list of strings."),
             'uppercase': BoolField(optional=True, default=True, description="Transform result to uppercase"),
-
+            'blank_token_id': NumberField(optional=True, value_type=int),
+            'eos_token_id': NumberField(optional=True, value_type=int),
+            'replace_underscore': BoolField(
+                optional=True, description='Replace underscore by white spacte after decoding', default=False
+            )
         })
         return parameters
 
     def configure(self):
-        self.alphabet = self.get_value_from_config('alphabet') or ' ' + string.ascii_lowercase + '\''
-        self.alphabet = self.alphabet.encode('ascii').decode('utf-8')
+        self.set_alphabet()
+        self.eos = self.get_value_from_config('eos_token_id') or -1
+        self.blank = self.get_value_from_config('blank_token_id') or -2
+        self.replace_underscore = self.get_value_from_config('replace_underscore')
         self.uppercase = self.get_value_from_config('uppercase')
+
+    def set_alphabet(self):
+        if 'vocabulary_file' in self.launcher_config:
+            self.alphabet = read_txt(self.get_value_from_config('vocabulary_file'), ignore_space=True)
+        else:
+            self.alphabet = self.get_value_from_config('alphabet') or ' ' + string.ascii_lowercase + '\''
+            self.alphabet = self.alphabet.encode('ascii').decode('utf-8')
 
     def process(self, raw, identifiers=None, frame_meta=None):
         assert len(identifiers) == 1
-        decoded = ''.join(self.alphabet[t] for t in raw[0])
+        decoded = ''.join(self.alphabet[t] for t in raw[0] if t != self.blank)
         if self.uppercase:
             decoded = decoded.upper()
-        return [CharacterRecognitionPrediction(identifiers[0], decoded.upper())]
+        if self.replace_underscore:
+            decoded = decoded.replace('_', ' ')
+        return [CharacterRecognitionPrediction(identifiers[0], decoded)]
 
 
 class TextState:

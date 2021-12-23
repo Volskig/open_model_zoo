@@ -19,7 +19,6 @@ import numpy as np
 from .text_to_speech_evaluator import TextToSpeechEvaluator, TTSDLSDKModel
 from ...adapters import create_adapter
 from ...config import ConfigError
-from ...launcher import create_launcher
 from ...utils import contains_all
 from ...logging import print_info
 
@@ -121,6 +120,7 @@ class SequentialModel:
 
 class EncoderModel:
     def __init__(self, network_info, launcher, suffix, nb_features, nb_used_features, delayed_model_loading=False):
+        self.is_dynamic = False
         self.network_info = network_info
         self.nb_features = nb_features
         self.nb_used_features = nb_used_features
@@ -215,6 +215,7 @@ class EncoderONNXModel(BaseONNXModel, EncoderModel):
 
 class DecoderModel:
     def __init__(self, network_info, launcher, suffix, frame_size, nb_features, delayed_model_loading=False):
+        self.is_dynamic = False
         self.network_info = network_info
         self.default_model_suffix = suffix
         self.frame_size = frame_size
@@ -339,12 +340,7 @@ def create_decoder(model_config, launcher, delayed_model_loading=False):
 class LPCNetEvaluator(TextToSpeechEvaluator):
     @classmethod
     def from_configs(cls, config, delayed_model_loading=False, orig_config=None):
-        dataset_config = config['datasets']
-        launcher_config = config['launchers'][0]
-        if launcher_config['framework'] == 'dlsdk' and 'device' not in launcher_config:
-            launcher_config['device'] = 'CPU'
-
-        launcher = create_launcher(launcher_config, delayed_model_loading=True)
+        dataset_config, launcher, _ = cls.get_dataset_and_launcher_info(config)
         model = SequentialModel(
             config.get('network_info', {}), launcher, config.get('_models', []), config.get('_model_is_blob'),
             delayed_model_loading

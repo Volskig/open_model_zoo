@@ -35,7 +35,6 @@ except ImportError as import_error:
 
 HETERO_KEYWORD = 'HETERO:'
 MULTI_DEVICE_KEYWORD = 'MULTI:'
-FPGA_COMPILER_MODE_VAR = 'CL_CONTEXT_COMPILER_MODE_INTELFPGA'
 NIREQ_REGEX = r"(\(\d+\))"
 VPU_PLUGINS = ('HDDL', "MYRIAD")
 VPU_LOG_LEVELS = ('LOG_NONE', 'LOG_WARNING', 'LOG_INFO', 'LOG_DEBUG')
@@ -111,12 +110,17 @@ class DLSDKLauncherConfigValidator(LauncherConfigValidator):
         self.need_conversion = None
 
     def create_device_regex(self, available_devices):
-        self.regular_device_regex = r"(?:^(?P<device>{devices})$)".format(devices="|".join(available_devices))
+        resolve_multi_device = set()
+        for device in available_devices:
+            resolve_multi_device.add(device)
+            if '.' in device:
+                resolve_multi_device.add(device.split('.')[0])
+        self.regular_device_regex = r"(?:^(?P<device>{devices})$)".format(devices="|".join(resolve_multi_device))
         self.hetero_regex = r"(?:^{hetero}(?P<devices>(?:{devices})(?:,(?:{devices}))*)$)".format(
-            hetero=HETERO_KEYWORD, devices="|".join(available_devices)
+            hetero=HETERO_KEYWORD, devices="|".join(resolve_multi_device)
         )
         self.multi_device_regex = r"(?:^{multi}(?P<devices_ireq>(?:{devices_ireq})(?:,(?:{devices_ireq}))*)$)".format(
-            multi=MULTI_DEVICE_KEYWORD, devices_ireq="{}?|".format(NIREQ_REGEX).join(available_devices)
+            multi=MULTI_DEVICE_KEYWORD, devices_ireq="{}?|".format(NIREQ_REGEX).join(resolve_multi_device)
         )
         self.supported_device_regex = r"{multi}|{hetero}|{regular}".format(
             multi=self.multi_device_regex, hetero=self.hetero_regex, regular=self.regular_device_regex
@@ -199,8 +203,8 @@ class DLSDKLauncherConfigValidator(LauncherConfigValidator):
         }
 
         specified = []
-        for mo_source_option in sources:
-            if contains_all(entry, sources[mo_source_option]):
+        for mo_source_option, mo_source_value in sources.items():
+            if contains_all(entry, mo_source_value):
                 specified.append(mo_source_option)
 
         if not specified:
@@ -234,7 +238,6 @@ DLSDK_LAUNCHER_PARAMETERS = {
     'kaldi_model': PathField(optional=True, description="Path to Kaldi model file."),
     'cpu_extensions': CPUExtensionPathField(optional=True, description="Path to CPU extensions."),
     'gpu_extensions': PathField(optional=True, description="Path to GPU extensions."),
-    'bitstream': PathField(optional=True, description="Bitream (FPGA only)."),
     'mo_params': DictField(optional=True, description="Model Optimizer parameters."),
     'mo_flags': ListField(optional=True, description="Model Optimizer flags."),
     'outputs': ListField(optional=True, description="Outputs."),
@@ -266,11 +269,9 @@ DLSDK_LAUNCHER_PARAMETERS = {
     '_tf_obj_detection_api_pipeline_config_path': PathField(
         optional=True, is_directory=False, description="TF Custom Operation Pipeline Config."),
     '_cpu_extensions_mode': StringField(optional=True, description="CPU extensions mode."),
-    '_aocl': PathField(optional=True, description="path to aocl (FPGA only)"),
     '_vpu_log_level': StringField(
         optional=True, choices=VPU_LOG_LEVELS, description="VPU LOG level: {}".format(', '.join(VPU_LOG_LEVELS))
     ),
-    '_prev_bitstream': PathField(optional=True, description="path to bitstream from previous run (FPGA only)"),
     '_model_is_blob': BoolField(optional=True, description='hint for auto model search'),
     '_undefined_shapes_resolving_policy': StringField(
         optional=True, default='default', choices=['default', 'dynamic', 'static'],
@@ -278,7 +279,10 @@ DLSDK_LAUNCHER_PARAMETERS = {
                     'default - try to run as default, if does not work switch to static, '
                     'dynamic - enforce network execution with dynamic shapes, '
                     'static - convert undefined shapes to static before execution'
-    )
+    ),
+    '_model_type': StringField(
+        choices=['xml', 'blob', 'onnx', 'paddle', 'tf'],
+        description='hint for model type in automatic model search', optional=True),
 }
 
 
@@ -370,41 +374,36 @@ def mo_convert_model(config, launcher_parameters, framework=None):
     )
 
 
-def automatic_model_search(model_name, model_cfg, weights_cfg, model_is_blob):
-    def get_xml(model_dir):
-        models_list = list(model_dir.glob('{}.xml'.format(model_name)))
-        if not models_list:
-            models_list = list(model_dir.glob('*.xml'))
-        return models_list
-
-    def get_blob(model_dir):
-        blobs_list = list(Path(model_dir).glob('{}.blob'.format(model_name)))
-        if not blobs_list:
-            blobs_list = list(Path(model_dir).glob('*.blob'))
-        return blobs_list
-
-    def get_onnx(model_dir):
-        onnx_list = list(Path(model_dir).glob('{}.onnx'.format(model_name)))
-        if not onnx_list:
-            onnx_list = list(Path(model_dir).glob('*.onnx'))
-        return onnx_list
+def automatic_model_search(model_name, model_cfg, weights_cfg, model_type=None):
+    model_type_ext = {
+        'xml': 'xml',
+        'blob': 'blob',
+        'onnx': 'onnx',
+        'paddle': 'pdmodel',
+        'tf': 'pb'
+    }
+    def get_model_by_suffix(model_name, model_dir, suffix):
+        model_list = list(Path(model_dir).glob('{}.{}'.format(model_name, suffix)))
+        if not model_list:
+            model_list = list(Path(model_dir).glob('*.{}'.format(suffix)))
+        return model_list
 
     def get_model():
         model = Path(model_cfg)
         if not model.is_dir():
-            accepted_suffixes = ['.blob', '.onnx', '.xml']
-            if model.suffix not in accepted_suffixes:
+            accepted_suffixes = list(model_type_ext.values())
+            if model.suffix[1:] not in accepted_suffixes:
                 raise ConfigError('Models with following suffixes are allowed: {}'.format(accepted_suffixes))
             print_info('Found model {}'.format(model))
             return model, model.suffix == '.blob'
-        if model_is_blob:
-            model_list = get_blob(model)
+        model_list = []
+        if model_type is not None:
+            model_list = get_model_by_suffix(model_name, model, model_type_ext[model_type])
         else:
-            model_list = get_xml(model)
-            if not model_list and model_is_blob is None:
-                model_list = get_blob(model)
-            if not model_list:
-                model_list = get_onnx(model)
+            for ext in model_type_ext.values():
+                model_list = get_model_by_suffix(model_name, model, ext)
+                if model_list:
+                    break
         if not model_list:
             raise ConfigError('suitable model is not found')
         if len(model_list) != 1:
@@ -417,7 +416,7 @@ def automatic_model_search(model_name, model_cfg, weights_cfg, model_is_blob):
     if is_blob:
         return model, None
     weights = weights_cfg
-    if (weights is None or Path(weights).is_dir()) and model.suffix != '.onnx':
+    if (weights is None or Path(weights).is_dir()) and model.suffix == '.xml':
         weights_dir = weights or model.parent
         weights = Path(weights_dir) / model.name.replace('xml', 'bin')
     if weights is not None:

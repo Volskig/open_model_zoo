@@ -26,6 +26,7 @@ from ..launcher import create_launcher, DummyLauncher, InputFeeder, Launcher
 from ..launcher.loaders import StoredPredictionBatch
 from ..logging import print_info, warning
 from ..metrics import MetricsExecutor
+from ..presenters import generate_csv_report
 from ..postprocessor import PostprocessingExecutor
 from ..preprocessor import PreprocessingExecutor
 from ..adapters import create_adapter, Adapter
@@ -79,6 +80,7 @@ class ModelEvaluator(BaseEvaluator):
             enable_ie_preprocessing=enable_ie_preprocessing
         )
         input_precision = launcher_config.get('_input_precision', [])
+        input_layouts = launcher_config.get('_input_layout', '')
         if enable_ie_preprocessing:
             launcher_kwargs['preprocessor'] = preprocessor
         if launcher_config['framework'] == 'dummy' and launcher_config.get('provide_identifiers', False):
@@ -92,7 +94,8 @@ class ModelEvaluator(BaseEvaluator):
         launcher_inputs = launcher.inputs if not postpone_model_loading else {}
         input_feeder = InputFeeder(
             launcher.config.get('inputs', []), launcher_inputs, launcher.input_shape, launcher.fit_to_input,
-            launcher.default_layout, launcher_config['framework'] == 'dummy' or postpone_model_loading, input_precision
+            launcher.default_layout, launcher_config['framework'] == 'dummy' or postpone_model_loading, input_precision,
+            input_layouts
         )
         if not postpone_model_loading:
             if input_precision:
@@ -248,12 +251,6 @@ class ModelEvaluator(BaseEvaluator):
         return filled_inputs, batch_meta, inputs_template
 
     def process_dataset_async(self, stored_predictions, progress_reporter, *args, **kwargs):
-        def completion_callback(status_code, request_id):
-            if status_code:
-                warning('Request {} failed with status code {}'.format(request_id, status_code))
-            queued_irs.remove(request_id)
-            ready_irs.append(request_id)
-
         def prepare_dataset(store_only_mode):
             if self.dataset is None:
                 raise ConfigError('dataset entry is not assigned for execution')
@@ -277,9 +274,34 @@ class ModelEvaluator(BaseEvaluator):
 
         output_callback = kwargs.get('output_callback')
         metric_config = self._configure_metrics(kwargs, output_callback)
+        dataset_iterator = iter(enumerate(self.dataset))
+        if hasattr(self.launcher, 'get_infer_queue'):
+            return self.process_dataset_async_infer_queue(
+                dataset_iterator, metric_config, progress_reporter, stored_predictions,
+                **kwargs
+            )
+        return self.process_dataset_async_requests(
+                dataset_iterator, metric_config, progress_reporter, stored_predictions,
+                **kwargs
+            )
+
+    def process_dataset_async_requests(
+        self, dataset_iterator, metric_config, progress_reporter, stored_predictions, **kwargs):
+        if self.launcher.config['framework'] == 'openvino':
+            def completion_callback(request_id):
+                queued_irs.remove(request_id)
+                ready_irs.append(request_id)
+        else:
+            def completion_callback(status_code, request_id):
+                if status_code:
+                    warning('Request {} failed with status code {}'.format(request_id, status_code))
+                queued_irs.remove(request_id)
+                ready_irs.append(request_id)
+
         (_, compute_intermediate_metric_res, metric_interval, ignore_results_formatting,
          ignore_metric_reference) = metric_config
-        dataset_iterator = iter(enumerate(self.dataset))
+        store_only = kwargs.get('store_only', False)
+        output_callback = kwargs.get('output_callback')
         infer_requests_pool = {ir.request_id: ir for ir in self.launcher.get_async_requests()}
         free_irs = list(infer_requests_pool)
         queued_irs, ready_irs = [], []
@@ -316,6 +338,49 @@ class ModelEvaluator(BaseEvaluator):
                             self.write_results_to_csv(kwargs.get('csv_result'), ignore_results_formatting,
                                                       metric_interval)
 
+        if progress_reporter:
+            progress_reporter.finish()
+
+        if stored_predictions:
+            print_info("prediction objects are save to {}".format(stored_predictions))
+
+    def process_dataset_async_infer_queue(
+        self, dataset_iterator, metric_config, progress_reporter, stored_predictions, **kwargs):
+
+        def completion_callback(request, user_data):
+            batch_id, batch_input_ids, batch_annotation, batch_identifiers, batch_meta = user_data
+            batch_raw_predictions = self.launcher.get_result_from_request(request)
+            if stored_predictions:
+                self.prepare_prediction_to_store(
+                    batch_raw_predictions, batch_identifiers, batch_meta, stored_predictions
+                )
+            if not store_only:
+                self._process_batch_results(
+                    batch_raw_predictions, batch_annotation, batch_identifiers,
+                    batch_input_ids, batch_meta, False, output_callback)
+
+            if progress_reporter:
+                progress_reporter.update(batch_id, len(batch_identifiers))
+                if compute_intermediate_metric_res and progress_reporter.current % metric_interval == 0:
+                    self.compute_metrics(
+                        print_results=True, ignore_results_formatting=ignore_results_formatting,
+                        ignore_metric_reference=ignore_metric_reference
+                    )
+                    self.write_results_to_csv(kwargs.get('csv_result'), ignore_results_formatting,
+                                              metric_interval)
+
+        (_, compute_intermediate_metric_res, metric_interval, ignore_results_formatting,
+         ignore_metric_reference) = metric_config
+        store_only = kwargs.get('store_only', False)
+        output_callback = kwargs.get('output_callback')
+        infer_queue = self.launcher.get_infer_queue()
+        infer_queue.set_callback(completion_callback)
+        for batch_id, dataset_item in dataset_iterator:
+            batch_input_ids, batch_annotation, batch_input, batch_identifiers = dataset_item
+            filled_inputs, batch_meta, _ = self._get_batch_input(batch_annotation, batch_input)
+            infer_queue.start_async(*self.launcher.prepare_data_for_request(
+                filled_inputs, batch_meta, batch_id, batch_input_ids, batch_annotation, batch_identifiers))
+        infer_queue.wait_all()
         if progress_reporter:
             progress_reporter.finish()
 
@@ -374,11 +439,16 @@ class ModelEvaluator(BaseEvaluator):
             self.adapter.output_blob = self.adapter.output_blob or self.launcher.output_blob
             batch_predictions = self.adapter.process(batch_predictions, batch_identifiers, batch_meta)
 
+        copy_annotations, copy_predictions = None, None
+        if self.metric_executor.profiler is not None and self.metric_executor.profiler.required_postprocessing:
+            copy_annotations, copy_predictions = copy.deepcopy(batch_annotations), copy.deepcopy(batch_predictions)
+            copy_annotations, copy_predictions = self.postprocessor.deprocess_batch(
+                copy_annotations, copy_predictions, batch_meta)
         annotations, predictions = self.postprocessor.process_batch(
             batch_annotations, batch_predictions, batch_meta
         )
         _, profile_result = self.metric_executor.update_metrics_on_batch(
-            batch_input_ids, annotations, predictions, enable_profiling
+            batch_input_ids, annotations, predictions, enable_profiling, copy_annotations, copy_predictions
         )
         if output_callback:
             callback_kwargs = {'profiling_result': profile_result} if enable_profiling else {}
@@ -422,8 +492,8 @@ class ModelEvaluator(BaseEvaluator):
             except StopIteration:
                 break
 
-            queued_irs.append(ir_id)
             batch_input, batch_meta, _ = self._get_batch_input(batch_annotation, batch_input)
+            queued_irs.append(ir_id)
             self.launcher.predict_async(infer_requests_pool[ir_id], batch_input, batch_meta,
                                         context=(batch_id, batch_input_ids, batch_annotation))
 
@@ -648,7 +718,10 @@ class ModelEvaluator(BaseEvaluator):
         per_input_tamplates = []
         for stat_shape in shapes_statistic:
             shape_template = [-1] * len(stat_shape[0])
-            undefined_shapes = np.squeeze(np.sum(shapes_statistic == -1, axis=1), 0).astype(int)
+
+            undefined_shapes = np.sum(stat_shape == -1, axis=0).astype(int)
+            if undefined_shapes.ndim >= 2:
+                undefined_shapes = np.squeeze(undefined_shapes, 0)
             for i, ds in enumerate(undefined_shapes):
                 if ds > 0:
                     continue
@@ -686,3 +759,33 @@ class ModelEvaluator(BaseEvaluator):
         self.launcher.release()
         if self.adapter:
             self.adapter.release()
+
+    @classmethod
+    def provide_metric_references(cls, conf, subset, return_header=True):
+        processing_info = cls.get_processing_info(conf)
+        dataset_config = conf['datasets'][0]
+        dataset = Dataset(dataset_config, log=False)
+        dataset_size = len(dataset)
+        ignore_config_refs = False
+        if subset is not None:
+            dataset_config['subsample_size'] = subset
+            new_dataset = Dataset(dataset_config, log=False)
+            if len(new_dataset) != len(dataset):
+                ignore_config_refs = True
+                warning('Subset is not matched with configuration. Reference values will be ignored')
+                dataset_size = len(new_dataset)
+                dataset = new_dataset
+        metric_dispatcher = MetricsExecutor(dataset_config.get('metrics', []), dataset)
+        extracted_results, extracted_meta = [], []
+        for result_presenter, metric_result in metric_dispatcher.get_metric_result_template(ignore_config_refs):
+            result, metadata = result_presenter.extract_result(metric_result)
+            if isinstance(result, list):
+                extracted_results.extend(result)
+                extracted_meta.extend(metadata)
+            else:
+                extracted_results.append(result)
+                extracted_meta.append(metadata)
+        header, report = generate_csv_report(processing_info, extracted_results, dataset_size, extracted_meta)
+        if not return_header:
+            return report
+        return header, report

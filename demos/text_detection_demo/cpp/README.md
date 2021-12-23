@@ -10,6 +10,7 @@ The demo shows an example of using neural networks to detect and recognize print
 * `text-recognition-0012`, which is a recognition network for recognizing text.
 * `text-recognition-0014`, which is a recognition network for recognizing text. You should add option `-tr_pt_first` and specify output layer name via `-tr_o_blb_nm` option for this model (see model [description](../../../models/intel/text-recognition-0014/README.md) for details).
 * `text-recognition-0015`, which is a recognition network for recognizing text. You should add options `-tr_pt_first`, `-m_tr_ss "?0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"` (supported symbols set), `-tr_o_blb_nm "logits"` (to specify output name) and `-dt simple` (to specify decoder type). You can also specify `-lower` option to convert predicted text to lower-case. See model [description](../../../models/intel/text-recognition-0015/README.md) for details.
+* `text-recognition-0016`, which is a recognition network for recognizing text. You should add options `-tr_pt_first`, `-m_tr_ss "?0123456789abcdefghijklmnopqrstuvwxyz"` (supported symbols set), `-tr_o_blb_nm "logits"` (to specify output name) and `-dt simple` (to specify decoder type). You can also specify `-lower` option to convert predicted text to lower-case. See model [description](../../../models/intel/text-recognition-0016/README.md) for details.
 * `text-recognition-resnet-fc`, which is a recognition network for recognizing text. You should add option `-tr_pt_first`.
 * `handwritten-score-recognition-0001`, which is a recognition network for recognizing handwritten score marks like `<digit>` or `<digit>.<digit>`.
 * `vitstr-small-patch16-224`, which is a recognition network for recognizing text. You should add options `-tr_pt_first`, `-m_tr_ss <path to vocab file>/.vocab.txt` (supported symbols set), `-dt simple` (to specify decoder type), `-start_index 1` (to process output from provided index) and `-pad " "` (to use specific pad symbol).
@@ -20,7 +21,7 @@ On startup, the application reads command line parameters and loads one network 
 
 If text recognition model is provided, the demo prints recognized text as well.
 
-> **NOTE**: By default, Open Model Zoo demos expect input with BGR channels order. If you trained your model to work with RGB order, you need to manually rearrange the default channels order in the demo application or reconvert your model using the Model Optimizer tool with the `--reverse_input_channels` argument specified. For more information about the argument, refer to **When to Reverse Input Channels** section of [Converting a Model Using General Conversion Parameters](https://docs.openvinotoolkit.org/latest/_docs_MO_DG_prepare_model_convert_model_Converting_Model_General.html).
+> **NOTE**: By default, Open Model Zoo demos expect input with BGR channels order. If you trained your model to work with RGB order, you need to manually rearrange the default channels order in the demo application or reconvert your model using the Model Optimizer tool with the `--reverse_input_channels` argument specified. For more information about the argument, refer to **When to Reverse Input Channels** section of [Converting a Model Using General Conversion Parameters](https://docs.openvino.ai/latest/openvino_docs_MO_DG_prepare_model_convert_model_Converting_Model.html#general-conversion-parameters).
 
 ## Preparing to Run
 
@@ -52,6 +53,7 @@ omz_converter --list models.lst
   * text-recognition-0014
 * decoder_type = simple
   * text-recognition-0015
+  * text-recognition-0016
   * text-recognition-resnet-fc
   * vitstr-small-patch16-224
 
@@ -118,7 +120,7 @@ For example, use the following command line command to run the application:
   -tr_o_blb_nm "logits"
 ```
 
-For `text-recognition-resnet-fc` and `text-recognition-0015` you should use `simple` decoder for `-dt` option. For other models use `ctc` decoder (default decoder). In case of `text-recognition-0015` model, specify path to `text-recognition-0015-encoder` models for `-m_tr` key and decoder part (`text-recognition-0015-decoder`) will be found automatically as shown on example below:
+For `text-recognition-resnet-fc`, `text-recgonition-0015` and `text-recognition-0016` you should use `simple` decoder for `-dt` option. For the rest models use `ctc` decoder (default decoder). In case of `text-recognition-0015` and `text-recognition-0016` models, specify path to `text-recognition-0015-encoder` (`text-recognition-0016-encoder`) models for `-m_tr` key and decoder part (`text-recognition-0015-decoder` and `text-recognition-0015-encoder`, correspondingly) will be found automatically as shown on example below:
 
 ```sh
 ./text_detection_demo \

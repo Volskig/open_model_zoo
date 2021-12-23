@@ -203,10 +203,9 @@ void configNets(const NetsFlagsPack& flags,
             "ActionNet/action_heads/out_head_2_anchor_3",
             "ActionNet/action_heads/out_head_2_anchor_4"};
        /** Create action detector net's parameters **/
-       std::array<std::string, 7> outputBlobList;
-          outputBlobList = isNetForSixActions(flags.m_act)
-              ? outputBlobList = action_detector_6
-              : outputBlobList =  action_detector_5;
+       std::array<std::string, 7> outputBlobList = isNetForSixActions(flags.m_act)
+           ? action_detector_6
+           : action_detector_5;
        auto action_net = cv::gapi::ie::Params<nets::PersonDetActionRec>{
            flags.m_act,
            fileNameNoExt(flags.m_act) + ".bin",
@@ -214,8 +213,7 @@ void configNets(const NetsFlagsPack& flags,
        }.cfgOutputLayers(outputBlobList);
        networks += cv::gapi::networks(action_net);
        slog::info << "The Person/Action Detection model " << flags.m_act << " is loaded to " << flags.d_act << " device." << slog::endl;
-    }
-    else {
+    } else {
         slog::info << "Person/Action Detection DISABLED." << slog::endl;
     }
     if (!flags.m_fd.empty()) {
@@ -228,8 +226,7 @@ void configNets(const NetsFlagsPack& flags,
                           {1u, 3u, static_cast<size_t>(flags.inh_fd), static_cast<size_t>(flags.inw_fd)});
         networks += cv::gapi::networks(det_net);
         slog::info << "The Face Detection model" << flags.m_fd << " is loaded to " << flags.d_fd << " device." << slog::endl;
-    }
-    else {
+    } else {
         slog::info << "Face Detection DISABLED." << slog::endl;
     }
 
@@ -242,8 +239,7 @@ void configNets(const NetsFlagsPack& flags,
         };
         if (!flags.m_lm.empty()) {
             slog::info << "The Facial Landmarks Regression model" << flags.m_lm << " is loaded to " << flags.d_lm << " device." << slog::endl;
-        }
-        else {
+        } else {
             slog::info << "Facial Landmarks Regression DISABLED." << slog::endl;
         }
         /** Create reidentification net's parameters **/
@@ -255,8 +251,7 @@ void configNets(const NetsFlagsPack& flags,
         networks += cv::gapi::networks(landm_net, reident_net);
         if (!flags.m_reid.empty()) {
             slog::info << "The Face Re-Identification model " << flags.m_reid << " is loaded to " << flags.d_reid << " device." << slog::endl;
-        }
-        else {
+        } else {
             slog::info << "Face Re-Identification DISABLED." << slog::endl;
         }
         InferenceEngine::Core ie;

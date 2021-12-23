@@ -124,7 +124,7 @@ class Launcher(ClassProvider):
         self.image_info_inputs = self.config.get('_list_image_infos', [])
         self._lstm_inputs = self.config.get('_list_lstm_inputs', [])
         self._ignore_inputs = self.config.get('_list_ignore_inputs', [])
-        self._scale_factor_inputs = self.config.get('_list_scale_factor_inputs', [])
+        self._scale_factor_inputs = self.config.get('_list_scale_factors', [])
         self._delayed_model_loading = kwargs.get('delayed_model_loading', False)
 
     @classmethod
@@ -155,7 +155,7 @@ class Launcher(ClassProvider):
             '_list_ignore_inputs': ListField(
                 allow_empty=True, optional=True, default=[], description='List of ignored inputs'
             ),
-            '_list_scale_factor_inputs': ListField(
+            '_list_scale_factors': ListField(
                 allow_empty=True, optional=True, default=[], description='List of scale factor inputs'
             ),
             '_input_precision': ListField(
@@ -164,7 +164,11 @@ class Launcher(ClassProvider):
             '_kaldi_bin_dir': PathField(is_directory=True, optional=True, description='directory with Kaldi binaries'),
             '_kaldi_log_file': PathField(
                 optional=True, description='File for saving Kaldi tools logs', check_exists=False
-            )
+            ),
+            '_model_type': StringField(optional=True, description='hint for launcher for model search'),
+            '_input_layout': StringField(optional=True,
+                                         description='input layout in format input1[layout],input2[layout] or [layout]'
+                                         )
         }
 
     @classmethod
@@ -302,7 +306,7 @@ def unsupported_launcher(name, error_message=None):
             msg = "{launcher} launcher is disabled. Please install {launcher} to enable it.".format(launcher=name)
             raise ValueError(error_message or msg)
 
-        def predict(self, data, meta=None, **kwargs):
+        def predict(self, inputs, metadata=None, **kwargs):
             raise NotImplementedError
 
         def release(self):

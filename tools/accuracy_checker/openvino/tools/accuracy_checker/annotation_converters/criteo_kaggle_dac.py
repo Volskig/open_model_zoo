@@ -64,7 +64,8 @@ class CriteoKaggleDACConverter(BaseFormatConverter):
         self.src = self.get_value_from_config('testing_file')
         self.binary = self.get_value_from_config('binary')
         self.batch = int(self.get_value_from_config('batch'))
-        self.max_ind_range = int(self.get_value_from_config('max_ind_range'))
+        max_ind_range = self.get_value_from_config('max_ind_range')
+        self.max_ind_range = int(max_ind_range) if max_ind_range is not None else max_ind_range
         self.subsample = int(self.get_value_from_config('subsample_size'))
         self.validation = self.get_value_from_config('validation')
         self.block = self.get_value_from_config('block')
@@ -103,7 +104,7 @@ class CriteoKaggleDACConverter(BaseFormatConverter):
             self.count = np.ceil(self.src.stat().st_size / self._bytes_per_entry)
             self.cat_feat = spa_fea
 
-            self.binfile = open(self.src, 'rb') if self.save_preprocessed_features else None
+            self.binfile = open(self.src, 'rb') if self.save_preprocessed_features else None # pylint: disable=R1732
         else:
             data = np.load(self.src)
             self._x_int = data['X_int']

@@ -21,7 +21,7 @@ The demo workflow is the following:
 1. The demo application reads video frames one by one and estimates 3D human poses in a given frame.
 2. The app visualizes results of its work as graphical window with 2D poses, which are overlaid on input image, and canvas with corresponding 3D poses.
 
-> **NOTE**: By default, Open Model Zoo demos expect input with BGR channels order. If you trained your model to work with RGB order, you need to manually rearrange the default channels order in the demo application or reconvert your model using the Model Optimizer tool with the `--reverse_input_channels` argument specified. For more information about the argument, refer to **When to Reverse Input Channels** section of [Converting a Model Using General Conversion Parameters](https://docs.openvinotoolkit.org/latest/_docs_MO_DG_prepare_model_convert_model_Converting_Model_General.html).
+> **NOTE**: By default, Open Model Zoo demos expect input with BGR channels order. If you trained your model to work with RGB order, you need to manually rearrange the default channels order in the demo application or reconvert your model using the Model Optimizer tool with the `--reverse_input_channels` argument specified. For more information about the argument, refer to **When to Reverse Input Channels** section of [Converting a Model Using General Conversion Parameters](https://docs.openvino.ai/latest/openvino_docs_MO_DG_prepare_model_convert_model_Converting_Model.html#general-conversion-parameters).
 
 ## Preparing to Run
 
@@ -50,7 +50,7 @@ omz_converter --list models.lst
 ### Prerequisites
 
 This demo application requires a native Python extension module to be built before you can run it.
-Refer to [Open Model Zoo Demos](../../README.md) for instructions on how to build it and prepare the environment for running the demo.
+Refer to [Open Model Zoo Demos](../../README.md) for instructions on how to build it and prepare the environment for running the demo. Once the demo is built with Python extension modules, add the path of the demo build folder to the `PYTHONPATH` environment variable.
 
 ## Running
 

@@ -21,7 +21,6 @@ import numpy as np
 
 from ...adapters import create_adapter
 from ...config import ConfigError
-from ...launcher import create_launcher
 from ...utils import contains_all, contains_any, read_pickle, get_path
 from ...logging import print_info
 from .asr_encoder_decoder_evaluator import AutomaticSpeechRecognitionEvaluator
@@ -30,12 +29,7 @@ from .asr_encoder_decoder_evaluator import AutomaticSpeechRecognitionEvaluator
 class ASREvaluator(AutomaticSpeechRecognitionEvaluator):
     @classmethod
     def from_configs(cls, config, delayed_model_loading=False, orig_config=None):
-        dataset_config = config['datasets']
-        launcher_config = config['launchers'][0]
-        if launcher_config['framework'] == 'dlsdk' and 'device' not in launcher_config:
-            launcher_config['device'] = 'CPU'
-
-        launcher = create_launcher(launcher_config, delayed_model_loading=True)
+        dataset_config, launcher, _ = cls.get_dataset_and_launcher_info(config)
         model = ASRModel(
             config.get('network_info', {}), launcher, config.get('_models', []), config.get('_model_is_blob'),
             delayed_model_loading
@@ -173,12 +167,6 @@ class BaseDLSDKModel:
             model, weights = launcher.convert_model(network_info)
         else:
             model, weights = self.automatic_model_search(network_info)
-        self.input_layers = network_info.get('inputs', self.default_input_layers)
-        self.output_layers = network_info.get('outputs', self.default_output_layers)
-        if len(self.input_layers) == 1:
-            self.input_blob = self.input_layers[0]
-        if len(self.output_layers) == 1:
-            self.output_blob = self.output_layers[0]
         if weights is not None:
             self.network = launcher.read_network(str(model), str(weights))
             self.load_network(self.network, launcher)
@@ -383,6 +371,12 @@ class CommonDLSDKModel(BaseModel, BaseDLSDKModel):
 
     def __init__(self, network_info, launcher, delayed_model_loading=False):
         super().__init__(network_info, launcher)
+        self.input_layers = network_info.get('inputs', self.default_input_layers)
+        self.output_layers = network_info.get('outputs', self.default_output_layers)
+        if len(self.input_layers) == 1:
+            self.input_blob = self.input_layers[0]
+        if len(self.output_layers) == 1:
+            self.output_blob = self.output_layers[0]
         self.with_prefix = None
         if not hasattr(self, 'output_blob'):
             self.output_blob = None

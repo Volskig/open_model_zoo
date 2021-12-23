@@ -47,7 +47,9 @@ from .utils import (
 )
 
 from .representation import (
-    BaseRepresentation, ReIdentificationClassificationAnnotation, ReIdentificationAnnotation, PlaceRecognitionAnnotation
+    BaseRepresentation, ReIdentificationClassificationAnnotation,
+    ReIdentificationAnnotation, PlaceRecognitionAnnotation,
+    SentenceSimilarityAnnotation
 )
 from .data_readers import (
     DataReaderField, REQUIRES_ANNOTATIONS, BaseReader,
@@ -55,9 +57,21 @@ from .data_readers import (
 )
 from .logging import print_info
 
+MODULES_RENAMING = {
+                    'accuracy_checker': 'openvino.tools.accuracy_checker',
+                    'libs.open_model_zoo.tools.accuracy_checker.accuracy_checker':
+                        [
+                            'libs.open_model_zoo.tools.accuracy_checker.openvino.tools.accuracy_checker',
+                            'thirdparty.open_model_zoo.tools.accuracy_checker.openvino.tools.accuracy_checker',
+                            'openvino.tools.accuracy_checker',
+                        ],
+                    'thirdparty.open_model_zoo.tools.accuracy_checker.openvino.tools.accuracy_checker':
+                        'openvino.tools.accuracy_checker',
+                }
+
 
 class Dataset:
-    def __init__(self, config_entry, delayed_annotation_loading=False):
+    def __init__(self, config_entry, delayed_annotation_loading=False, log=True):
         self.name = config_entry.get('name')
         self._config = config_entry
         self._batch = self.config.get('batch')
@@ -65,7 +79,7 @@ class Dataset:
         self.data_provider = None
         ConfigValidator('dataset', fields=self.parameters()).validate(self.config)
         if not delayed_annotation_loading:
-            self.create_data_provider()
+            self.create_data_provider(log)
 
     @classmethod
     def parameters(cls):
@@ -103,17 +117,19 @@ class Dataset:
         }
 
     @staticmethod
-    def load_annotation(config):
+    def load_annotation(config, log=True):
         def _convert_annotation():
-            print_info("Annotation conversion for {dataset_name} dataset has been started".format(
-                dataset_name=config['name']))
-            print_info("Parameters to be used for conversion:")
-            for key, value in config['annotation_conversion'].items():
-                print_info('{key}: {value}'.format(key=key, value=value))
+            if log:
+                print_info("Annotation conversion for {dataset_name} dataset has been started".format(
+                    dataset_name=config['name']))
+                print_info("Parameters to be used for conversion:")
+                for key, value in config['annotation_conversion'].items():
+                    print_info('{key}: {value}'.format(key=key, value=value))
             annotation, meta = Dataset.convert_annotation(config)
             if annotation is not None:
-                print_info("Annotation conversion for {dataset_name} dataset has been finished".format(
-                    dataset_name=config['name']))
+                if log:
+                    print_info("Annotation conversion for {dataset_name} dataset has been finished".format(
+                        dataset_name=config['name']))
             return annotation, meta
 
         def _run_dataset_analysis(meta):
@@ -129,10 +145,12 @@ class Dataset:
             meta_name = config.get('dataset_meta')
             if meta_name:
                 meta_name = Path(meta_name)
-                print_info("{dataset_name} dataset metadata will be saved to {file}".format(
-                    dataset_name=config['name'], file=meta_name))
-            print_info('Converted annotation for {dataset_name} dataset will be saved to {file}'.format(
-                dataset_name=config['name'], file=Path(annotation_name)))
+                if log:
+                    print_info("{dataset_name} dataset metadata will be saved to {file}".format(
+                        dataset_name=config['name'], file=meta_name))
+            if log:
+                print_info('Converted annotation for {dataset_name} dataset will be saved to {file}'.format(
+                    dataset_name=config['name'], file=Path(annotation_name)))
             save_annotation(annotation, meta, Path(annotation_name), meta_name, config)
 
         annotation, meta = None, None
@@ -140,9 +158,10 @@ class Dataset:
         if 'annotation' in config:
             annotation_file = Path(config['annotation'])
             if annotation_file.exists():
-                print_info('Annotation for {dataset_name} dataset will be loaded from {file}'.format(
-                    dataset_name=config['name'], file=annotation_file))
-                annotation = read_annotation(get_path(annotation_file))
+                if log:
+                    print_info('Annotation for {dataset_name} dataset will be loaded from {file}'.format(
+                        dataset_name=config['name'], file=annotation_file))
+                annotation = read_annotation(get_path(annotation_file), log)
                 meta = Dataset.load_meta(config)
                 use_converted_annotation = False
 
@@ -151,8 +170,9 @@ class Dataset:
 
         if not annotation:
             raise ConfigError('path to converted annotation or data for conversion should be specified')
-        annotation = _create_subset(annotation, config)
-        dataset_analysis = config.get('analyze_datase', False)
+        no_recursion = (meta or {}).get('no_recursion', False)
+        annotation = _create_subset(annotation, config, no_recursion)
+        dataset_analysis = config.get('analyze_dataset', False)
 
         if dataset_analysis:
             meta = _run_dataset_analysis(meta)
@@ -204,8 +224,8 @@ class Dataset:
 
         return info
 
-    def create_data_provider(self):
-        annotation, meta = self.load_annotation(self.config)
+    def create_data_provider(self, log=True):
+        annotation, meta = self.load_annotation(self.config, log=log)
         data_reader_config = self.config.get('reader', 'opencv_imread')
         data_source = self.config.get('data_source')
         if isinstance(data_reader_config, str):
@@ -358,31 +378,28 @@ class Dataset:
         return self.data_provider.labels
 
 
-def read_annotation(annotation_file: Path):
+def read_annotation(annotation_file: Path, log=True):
     annotation_file = Path(annotation_file)
 
     result = []
+    loader_cls = pickle.Unpickler # nosec - disable B301:pickle check
     with annotation_file.open('rb') as file:
-        loader = pickle.Unpickler(file) # nosec - disable B301:pickle check
+        loader = loader_cls(file)
         try:
             first_obj = loader.load()
             if isinstance(first_obj, DatasetConversionInfo):
-                describe_cached_dataset(first_obj)
+                if log:
+                    describe_cached_dataset(first_obj)
             else:
                 result.append(first_obj)
         except ModuleNotFoundError:
-            loader = RenameUnpickler(
-                file,
-                {
-                    'accuracy_checker': 'openvino.tools.accuracy_checker',
-                    'libs.open_model_zoo.tools.accuracy_checker.accuracy_checker':
-                        ['libs.open_model_zoo.tools.accuracy_checker.openvino.tools.accuracy_checker',
-                         'openvino.tools.accuracy_checker']
-                })
+            loader_cls = RenameUnpickler
+            loader = loader_cls(file, MODULES_RENAMING)
             try:
                 first_obj = loader.load()
                 if isinstance(first_obj, DatasetConversionInfo):
-                    describe_cached_dataset(first_obj)
+                    if log:
+                        describe_cached_dataset(first_obj)
                 else:
                     result.append(first_obj)
             except EOFError:
@@ -391,31 +408,34 @@ def read_annotation(annotation_file: Path):
             return result
         while True:
             try:
-                result.append(BaseRepresentation.load(file, loader))
+                result.append(
+                    BaseRepresentation.load(file, loader_cls(file) if loader_cls != RenameUnpickler
+                    else loader_cls(file, MODULES_RENAMING))
+                )
             except EOFError:
                 break
 
     return result
 
 
-def create_subset(annotation, subsample_size, subsample_seed, shuffle=True):
+def create_subset(annotation, subsample_size, subsample_seed, shuffle=True, no_recursion=False):
     if isinstance(subsample_size, str):
         if subsample_size.endswith('%'):
             try:
                 subsample_size = float(subsample_size[:-1])
-            except ValueError:
-                raise ConfigError('invalid value for subsample_size: {}'.format(subsample_size))
+            except ValueError as value_err:
+                raise ConfigError('invalid value for subsample_size: {}'.format(subsample_size)) from value_err
             if subsample_size <= 0:
                 raise ConfigError('subsample_size should be > 0')
             subsample_size *= len(annotation) / 100
             subsample_size = int(subsample_size) or 1
     try:
         subsample_size = int(subsample_size)
-    except ValueError:
-        raise ConfigError('invalid value for subsample_size: {}'.format(subsample_size))
+    except ValueError as value_err:
+        raise ConfigError('invalid value for subsample_size: {}'.format(subsample_size)) from value_err
     if subsample_size < 1:
         raise ConfigError('subsample_size should be > 0')
-    return make_subset(annotation, subsample_size, subsample_seed, shuffle)
+    return make_subset(annotation, subsample_size, subsample_seed, shuffle, no_recursion)
 
 
 def describe_cached_dataset(dataset_info):
@@ -458,7 +478,8 @@ class AnnotationProvider:
             next(iter(self._data_buffer.values())), (
                 ReIdentificationAnnotation,
                 ReIdentificationClassificationAnnotation,
-                PlaceRecognitionAnnotation
+                PlaceRecognitionAnnotation,
+                SentenceSimilarityAnnotation
             )
         )
         if ids:
@@ -506,6 +527,22 @@ class AnnotationProvider:
                     pairs_set |= OrderedSet(gallery_for_person)
             return pairs_set, subsample_set
 
+        def sentence_sim_subset(pairs_set, subsample_set, ids):
+            index_to_info = {
+                idx: (identifier, ann.id, ann.pair_id)
+                for idx, (identifier, ann) in enumerate(self._data_buffer.items())
+            }
+            pair_id_to_idx = {pair_id: idx for idx, (_, _, pair_id) in index_to_info.items() if pair_id is not None}
+            id_to_idx = {inst_id: idx for idx, (_, inst_id, _) in index_to_info.items()}
+            for idx in ids:
+                subsample_set.add(idx)
+                current_annotation = self._data_buffer[index_to_info[idx][0]]
+                if current_annotation.pair_id is not None and current_annotation.pair_id in id_to_idx:
+                    pairs_set.add(id_to_idx[current_annotation.pair_id])
+                if current_annotation.id in pair_id_to_idx:
+                    pairs_set.add(pair_id_to_idx[current_annotation.id])
+            return pairs_set, subsample_set
+
         def ibl_subset(pairs_set, subsample_set, ids):
             queries_ids = [idx for idx, (_, ann) in enumerate(self._data_buffer.items()) if ann.query]
             gallery_ids = [idx for idx, (_, ann) in enumerate(self._data_buffer.items()) if not ann.query]
@@ -526,6 +563,7 @@ class AnnotationProvider:
             return pairs_set, subsample_set
 
         realisation = [
+            (SentenceSimilarityAnnotation, sentence_sim_subset),
             (PlaceRecognitionAnnotation, ibl_subset),
             (ReIdentificationClassificationAnnotation, reid_pairwise_subset),
             (ReIdentificationAnnotation, reid_subset),
@@ -700,7 +738,8 @@ class DataProvider:
         if subsample_size is not None:
             subsample_seed = self.dataset_config.get('subsample_seed', 666)
 
-            annotation = create_subset(annotation, subsample_size, subsample_seed)
+            annotation = create_subset(
+                annotation, subsample_size, subsample_seed, (meta or {}).get('no_recursion', False))
 
         if self.dataset_config.get('analyze_dataset', False):
             if self.dataset_config.get('segmentation_masks_source'):
@@ -762,14 +801,14 @@ def ignore_subset_settings(config):
     return False
 
 
-def _create_subset(annotation, config):
+def _create_subset(annotation, config, no_recursion=False):
     subsample_size = config.get('subsample_size')
     if not ignore_subset_settings(config):
 
         if subsample_size is not None:
             subsample_seed = config.get('subsample_seed', 666)
             shuffle = config.get('shuffle', True)
-            annotation = create_subset(annotation, subsample_size, subsample_seed, shuffle)
+            annotation = create_subset(annotation, subsample_size, subsample_seed, shuffle, no_recursion)
 
     elif subsample_size is not None:
         warnings.warn("Subset selection parameters will be ignored")

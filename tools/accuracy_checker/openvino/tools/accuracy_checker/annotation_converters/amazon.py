@@ -35,21 +35,21 @@ class DataIterator:
                  batch_size=128,
                  maxlen=100):
 
-        self.source = open(source, 'r')
+        self.source = open(source, 'r', encoding='UTF-8') # pylint: disable=R1732
         self.source_dicts = []
         for source_dict in [uid_voc, mid_voc, cat_voc]:
             # disable B301:pickle check
-            self.source_dicts.append(pickle.load(open(source_dict, 'rb'), encoding='UTF-8')) # nosec
+            with open(source_dict, 'rb') as source_content:
+                self.source_dicts.append(pickle.load(source_content, encoding='UTF-8')) # nosec
 
-        f_meta = open(item_info, "r")
-        meta_map = {}
-        for line in f_meta:
-            arr = line.strip().split("\t")
-            if arr[0] not in meta_map:
-                meta_map[arr[0]] = arr[1]
+        with open(item_info, "r", encoding='UTF-8') as f_meta:
+            meta_map = {}
+            for line in f_meta:
+                arr = line.strip().split("\t")
+                if arr[0] not in meta_map:
+                    meta_map[arr[0]] = arr[1]
         self.meta_id_map = {}
-        for key in meta_map:
-            val = meta_map[key]
+        for key, val in meta_map.items():
             if key in self.source_dicts[1]:
                 mid_idx = self.source_dicts[1][key]
             else:
@@ -60,14 +60,14 @@ class DataIterator:
                 cat_idx = 0
             self.meta_id_map[mid_idx] = cat_idx
 
-        f_review = open(reviews_info, "r")
-        self.mid_list_for_random = []
-        for line in f_review:
-            arr = line.strip().split("\t")
-            tmp_idx = 0
-            if arr[1] in self.source_dicts[1]:
-                tmp_idx = self.source_dicts[1][arr[1]]
-            self.mid_list_for_random.append(tmp_idx)
+        with open(reviews_info, "r", encoding='UTF-8') as f_review:
+            self.mid_list_for_random = []
+            for line in f_review:
+                arr = line.strip().split("\t")
+                tmp_idx = 0
+                if arr[1] in self.source_dicts[1]:
+                    tmp_idx = self.source_dicts[1][arr[1]]
+                self.mid_list_for_random.append(tmp_idx)
 
         self.batch_size = batch_size
         self.maxlen = maxlen
@@ -179,9 +179,11 @@ class AmazonProductData(BaseFormatConverter):
                                      description="Separator between input identifier and file identifier"),
             "test_data": StringField(optional=True, default='local_test_splitByUser',
                                      description="test data filename."),
-            "batch": NumberField(optional=True, default=1, description="Batch size"),
-            "max_len": NumberField(optional=True, default=100, description="Maximum sequence length"),
-            "subsample_size": NumberField(optional=True, default=0, description="Number of sentences to process"),
+            "batch": NumberField(optional=True, default=1, description="Batch size", value_type=int),
+            "max_len": NumberField(optional=True, default=None, description="Maximum sequence length", value_type=int),
+            "subsample_size": NumberField(
+                optional=True, default=0, description="Number of sentences to process", value_type=int
+            ),
             "uid_voc": StringField(optional=True, default='uid_voc.pkl', description="uid_voc filename"),
             "mid_voc": StringField(optional=True, default='mid_voc.pkl', description="mid_voc filename"),
             "cat_voc": StringField(optional=True, default='cat_voc.pkl', description="cat_voc filename"),
@@ -224,19 +226,36 @@ class AmazonProductData(BaseFormatConverter):
         self.mask = self.get_value_from_config('mask')
         self.seq_len = self.get_value_from_config('seq_len')
         self.skip_dump = self.get_value_from_config('skip_dump')
-        self.batch = int(self.get_value_from_config('batch'))
-        self.max_len = int(self.get_value_from_config('max_len'))
-        self.subsample_size = int(self.get_value_from_config('subsample_size'))
+        self.batch = self.get_value_from_config('batch')
+        self.max_len = self.get_value_from_config('max_len')
+        self.subsample_size = self.get_value_from_config('subsample_size')
 
     @staticmethod
-    def prepare_data(source, target):
+    def prepare_data(source, target, maxlen=None):
         # x: a list of sentences
         lengths_x = [len(s[4]) for s in source]
         seqs_mid = [inp[3] for inp in source]
         seqs_cat = [inp[4] for inp in source]
+        if maxlen is not None:
+            new_seqs_mid = []
+            new_seqs_cat = []
+            new_lengths_x = []
+            for l_x, inp in zip(lengths_x, source):
+                if l_x > maxlen:
+                    new_seqs_mid.append(inp[3][l_x - maxlen:])
+                    new_seqs_cat.append(inp[4][l_x - maxlen:])
+                    new_lengths_x.append(maxlen)
+                else:
+                    new_seqs_mid.append(inp[3])
+                    new_seqs_cat.append(inp[4])
+                    new_lengths_x.append(l_x)
+            lengths_x = new_lengths_x
+            seqs_mid = new_seqs_mid
+            seqs_cat = new_seqs_cat
 
         n_samples = len(seqs_mid)
         maxlen_x = np.max(lengths_x)
+        maxlen_x = max(maxlen, maxlen_x) if maxlen is not None else maxlen_x
 
         mid_his = np.zeros((n_samples, maxlen_x)).astype('int64')
         cat_his = np.zeros((n_samples, maxlen_x)).astype('int64')
@@ -278,7 +297,7 @@ class AmazonProductData(BaseFormatConverter):
         iteration = 0
 
         for src, tgt in test_data:
-            uids, mids, cats, mid_his, cat_his, mid_mask, gt, sl = self.prepare_data(src, tgt)
+            uids, mids, cats, mid_his, cat_his, mid_mask, gt, sl = self.prepare_data(src, tgt, maxlen=self.max_len)
             c_input = input_folder / "{:02d}".format(subfolder)
             c_input = c_input / "{:06d}.npz".format(iteration)
 

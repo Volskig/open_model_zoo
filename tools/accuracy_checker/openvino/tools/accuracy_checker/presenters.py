@@ -51,8 +51,7 @@ class ScalarPrintPresenter(BasePresenter):
         postfix, scale, result_format = get_result_format_parameters(meta, ignore_results_formatting)
         difference = None
         if reference and not ignore_metric_reference:
-            _, original_scale, _ = get_result_format_parameters(meta, False)
-            difference = compare_with_ref(reference, value, original_scale, name)
+            difference = compare_with_ref(reference, value, name)
         write_scalar_result(
             value, name, abs_threshold, rel_threshold, difference,
             postfix=postfix, scale=scale, result_format=result_format
@@ -96,8 +95,7 @@ class VectorPrintPresenter(BasePresenter):
             difference = None
             value_name = value_names[0] if value_names else None
             if reference and not ignore_metric_reference:
-                _, original_scale, _ = get_result_format_parameters(meta, False)
-                difference = compare_with_ref(reference, value, original_scale, value_name)
+                difference = compare_with_ref(reference, value, value_name)
             write_scalar_result(
                 value, name, abs_threshold, rel_threshold, difference,
                 value_name=value_name,
@@ -113,7 +111,7 @@ class VectorPrintPresenter(BasePresenter):
             value_name = value_names[index] if value_names else None
 
             if reference and not ignore_metric_reference and isinstance(reference, dict):
-                difference = compare_with_ref(reference, res, value_scale, value_name)
+                difference = compare_with_ref(reference, res, value_name)
             write_scalar_result(
                 res, name, abs_threshold, rel_threshold, difference,
                 value_name=value_name,
@@ -123,14 +121,14 @@ class VectorPrintPresenter(BasePresenter):
             )
 
         if len(value) > 1 and meta.get('calculate_mean', True):
-            mean_value = np.mean(np.multiply(value, scale))
+            mean_value = np.mean(value)
+            value_scale = scale[0] if not np.isscalar(scale) else scale
             difference = None
             if reference and not ignore_metric_reference:
-                original_scale = get_result_format_parameters(meta, False)[1] if ignore_results_formatting else 1
-                difference = compare_with_ref(reference, mean_value, original_scale, 'mean')
+                difference = compare_with_ref(reference, mean_value, 'mean')
             write_scalar_result(
                 mean_value, name, abs_threshold, rel_threshold, difference, value_name='mean',
-                postfix=postfix[-1] if not np.isscalar(postfix) else postfix, scale=1,
+                postfix=postfix[-1] if not np.isscalar(postfix) else postfix, scale=value_scale,
                 result_format=result_format
             )
 
@@ -208,7 +206,7 @@ def write_scalar_result(
         rel_threshold = rel_threshold or 0
         if abs_threshold <= diff_with_ref[0] or rel_threshold <= diff_with_ref[1]:
             fail_message = "[FAILED:  abs error = {:.4} | relative error = {:.4}]".format(
-                diff_with_ref[0], diff_with_ref[1]
+                diff_with_ref[0] * scale, diff_with_ref[1]
             )
             message = "{} {}".format(message, color_format(fail_message, Color.FAILED))
         else:
@@ -217,14 +215,14 @@ def write_scalar_result(
     print_info(message)
 
 
-def compare_with_ref(reference, res_value, scale, name=None):
+def compare_with_ref(reference, res_value, name=None):
     if isinstance(reference, dict):
         if name is None:
             reference = next(iter(reference.values()))
         reference = reference.get(name)
     if reference is None:
         return None
-    return abs(reference - (res_value * scale)), abs(reference - (res_value * scale)) / reference
+    return abs(reference - res_value), abs(reference - res_value) / reference
 
 
 def get_result_format_parameters(meta, use_default_formatting):
@@ -239,8 +237,7 @@ def get_result_format_parameters(meta, use_default_formatting):
     return postfix, scale, result_format
 
 
-def write_csv_result(csv_file, processing_info, metric_results, dataset_size, metrics_meta):
-    new_file = not check_file_existence(csv_file)
+def generate_csv_report(processing_info, metric_results, dataset_size, metrics_meta):
     field_names = [
         'model', 'launcher', 'device', 'dataset',
         'tags', 'metric_name', 'metric_type', 'metric_value', 'metric_target', 'metric_scale', 'metric_postfix',
@@ -254,22 +251,29 @@ def write_csv_result(csv_file, processing_info, metric_results, dataset_size, me
         'dataset': dataset,
         'dataset_size': dataset_size
     }
+    rows = []
+    for metric_result, metric_meta in zip(metric_results, metrics_meta):
+        rows.append({
+            **main_info,
+            'metric_name': metric_result['name'],
+            'metric_type': metric_result['type'],
+            'metric_value': metric_result['value'],
+            'metric_target': metric_meta.get('target', 'higher-better'),
+            'metric_scale': metric_meta.get('scale', 100),
+            'metric_postfix': metric_meta.get('postfix', '%'),
+            'ref': metric_result.get('ref', ''),
+            'abs_threshold': metric_result.get('abs_threshold', 0),
+            'rel_threshold': metric_result.get('rel_threshold', 0),
+            'profiling_file': metric_result.get('profiling_file', '')
+        })
+    return field_names, rows
 
-    with open(csv_file, 'a+', newline='') as f:
+
+def write_csv_result(csv_file, processing_info, metric_results, dataset_size, metrics_meta):
+    new_file = not check_file_existence(csv_file)
+    field_names, rows = generate_csv_report(processing_info, metric_results, dataset_size, metrics_meta)
+    with open(csv_file, 'a+', newline='', encoding='utf-8') as f:
         writer = DictWriter(f, fieldnames=field_names)
         if new_file:
             writer.writeheader()
-        for metric_result, metric_meta in zip(metric_results, metrics_meta):
-            writer.writerow({
-                **main_info,
-                'metric_name': metric_result['name'],
-                'metric_type': metric_result['type'],
-                'metric_value': metric_result['value'],
-                'metric_target': metric_meta.get('target', 'higher-better'),
-                'metric_scale': metric_meta.get('scale', 100),
-                'metric_postfix': metric_meta.get('postfix', '%'),
-                'ref': metric_result.get('ref', ''),
-                'abs_threshold': metric_result.get('abs_threshold', 0),
-                'rel_threshold': metric_result.get('rel_threshold', 0),
-                'profiling_file': metric_result.get('profiling_file', '')
-            })
+        writer.writerows(rows)

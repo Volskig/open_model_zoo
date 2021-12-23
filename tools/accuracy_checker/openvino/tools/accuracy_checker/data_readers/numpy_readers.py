@@ -40,7 +40,8 @@ class NumPyReader(BaseReader):
                 description='Separator symbol between input name and record number in input identifier.'
             ),
             'block': BoolField(optional=True, default=False, description='Allows block mode.'),
-            'batch': NumberField(optional=True, default=1, description='Batch size')
+            'batch': NumberField(optional=True, default=1, description='Batch size'),
+            'records_mode': BoolField(optional=True, default=False, description='separate data on records'),
         })
         return parameters
 
@@ -53,9 +54,10 @@ class NumPyReader(BaseReader):
         self.id_sep = self.get_value_from_config('id_sep')
         self.block = self.get_value_from_config('block')
         self.batch = int(self.get_value_from_config('batch'))
+        self.record_mode = self.get_value_from_config('records_mode')
 
         if self.separator and self.is_text:
-            raise ConfigError('text file reading with numpy does')
+            raise ConfigError('text file reading with numpy does support separation')
         if not self.data_source:
             if not self._postpone_data_source:
                 raise ConfigError('data_source parameter is required to create "{}" '
@@ -90,7 +92,15 @@ class NumPyReader(BaseReader):
                 return res
 
         key = next(iter(data.keys()))
-        return data[key]
+        data = data[key]
+        if self.record_mode and self.id_sep in field_id:
+            recno = field_id.split(self.id_sep)[-1]
+            recno = int(recno)
+            res = data[recno, :]
+            return res
+        if self.multi_infer:
+            return list(data)
+        return data
 
 
 class NumpyTXTReader(BaseReader):
@@ -126,14 +136,21 @@ class NumpyBinReader(BaseReader):
     def parameters(cls):
         params = super().parameters()
         params.update({
-            "dtype": StringField(optional=True, default='float32', description='data type for reading')
+            "dtype": StringField(optional=True, default='float32', description='data type for reading'),
+            'as_buffer': BoolField(optional=True, default=False, description='interpter binary data as buffere'),
+            'offset': NumberField(optional=True, default=0, value_type=int, min_value=0)
         })
         return params
 
     def configure(self):
         super().configure()
         self.dtype = self.get_value_from_config('dtype')
+        self.as_buffer = self.get_value_from_config('as_buffer')
+        self.offset = self.get_value_from_config('offset')
 
     def read(self, data_id):
         data_path = self.data_source / data_id if self.data_source is not None else data_id
-        return np.fromfile(data_path, dtype=self.dtype)
+        if not self.as_buffer:
+            return np.fromfile(data_path, dtype=self.dtype)
+        buffer = Path(data_path).open('rb').read()
+        return np.frombuffer(buffer[self.offset:], dtype=self.dtype)

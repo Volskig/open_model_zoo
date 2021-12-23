@@ -229,7 +229,7 @@ The main difference between this converter and `super_resolution` in data organi
 * `unicode_character_recognition` - converts [Kondate](http://web.tuat.ac.jp/~nakagawa/database/en/kondate_about.html) dataset and [Nakayosi](http://web.tuat.ac.jp/~nakagawa/database/en/about_nakayosi.html) for handwritten Japanese text recognition task , and [SCUT-EPT](https://github.com/HCIILAB/SCUT-EPT_Dataset_Release) for handwritten simplified Chinese text recognition task to `CharacterRecognitionAnnotation`.
   * `annotation_file` - path to annotation file in txt format.
   * `decoding_char_file` - path to decoding_char_file, consisting of all supported characters separated by '\n' in txt format.
-* `bentham_lines` - converts [Bentham](http://transcriptorium.eu/datasets/bentham-collection/) dataset for line-level character recognition to `CharacterRecognitionAnnotation`.
+* `bentham_lines` - converts [Bentham](https://zenodo.org/record/44519#.YVXcdFuEa90) dataset for line-level character recognition to `CharacterRecognitionAnnotation`.
   * `transcription_dir` - directory stored line transcriptions
   * `partition_file` - file with selected subset for validation.
   * `normalize_text` - allow unicode normalization for text (Optional, default `False`).
@@ -322,6 +322,9 @@ The main difference between this converter and `super_resolution` in data organi
 * `cvat_age_gender` -  converts [CVAT XML annotation version 1.1](https://openvinotoolkit.github.io/cvat/docs/manual/advanced/xml_format/) format for images which represent dataset for age gender recognition to `ContainerAnnotation` with `ClassificationAnnotation` for gender recognition, `ClassificationAnnotation` for age classification and `RegeressionAnnotation` for age regression. The identifiers for representations following: `gender_annotation`, `age_class_annotation`, `age_regression_annotation`.
   * `annotation_file` - path to xml file in appropriate format.
 * `cvat_facial_landmarks` - converts [CVAT XML annotation version 1.1](https://openvinotoolkit.github.io/cvat/docs/manual/advanced/xml_format/) format for images to `FacialLandmarksAnnotation`.
+* `coco_facial_landmarks` - converts landmarks dataset in Coco format to `FacialLandmarksHeatMapAnnotation`.
+  * `annotation_file` - path to dataset annotation file in Coco format
+* `cvat_facial_landmarks` - converts [CVAT XML annotation version 1.1](https://openvinotoolkit.github.io/cvat/docs/manual/advanced/xml_format) format for images to `FacialLandmarksAnnotation`.
   * `annotation_file` - path to xml file in appropriate format.
 * `cvat_pose_estimation` - converts [CVAT XML annotation version 1.1](https://openvinotoolkit.github.io/cvat/docs/manual/advanced/xml_format/) format for images to `PoseEstimationAnnotation`.
   * `annotation_file` - path to xml file in appropriate format.
@@ -346,6 +349,7 @@ The main difference between this converter and `super_resolution` in data organi
   * `max_seq_length` - maximum total input sequence length after word-piece tokenization (Optional, default value is 128).
   * `max_query_length` - maximum number of tokens for the question (Optional, default value is 64).
   * `lower_case` - allows switching tokens to lower case register. It is useful for working with uncased models (Optional, default value is False)
+  * `enable_padding` - enable padding inputs to max length for queries and sequences.
 * `squad` - converts the Stanford Question Answering Dataset ([SQuAD](https://rajpurkar.github.io/SQuAD-explorer/)) to `Question Answering Annotation`. **Note: This converter not only converts data to metric specific format but also tokenize and encodes input for model.**
   * `testing_file` - path to testing file.
   * `vocab_file` - path to model co vocabulary file.
@@ -353,6 +357,7 @@ The main difference between this converter and `super_resolution` in data organi
   * `max_query_length` - maximum number of tokens for the question (Optional, default value is 64).
   * `doc_stride` -stride size between chunks for splitting up long document (Optional, default value is 128).
   * `lower_case` - allows switching tokens to lower case register. It is useful for working with uncased models (Optional, default value is False)
+  * `enable_padding` - enable padding for max sequence length.
 * `squad_bidaf` - converts the Stanford Question Answering Dataset ([SQuAD](https://rajpurkar.github.io/SQuAD-explorer/)) to `QuestionAnsweringBiDAFAnnotation`. **Note:** This converter not only converts data to metric specific format but also tokenize and encodes input for BiDAF using nltk.word_tokenize.
   * `testing_file` - path to testing file.
 * `xnli` - converts The Cross-lingual Natural Language Inference Corpus ([XNLI](https://github.com/facebookresearch/XNLI)) to `TextClassificationAnnotattion`. **Note: This converter not only converts data to metric specific format but also tokenize and encodes input for model.**
@@ -538,11 +543,30 @@ The main difference between this converter and `super_resolution` in data organi
     ```yaml
         tokenizer_dir: <model_saving_path>/roberta-base
     ```
+* `sentence_similarity` - converts Column-based dataset for sentence similarity evaluation to `SentenceSimilarityAnnotation`.**Note: This converter not only converts data to metric specific format but also tokenize and encodes input for model.**
+  * `annotation_file` - path to dataset annotation file in tsv or csv format.
+  * `separator` - column separator, supported values: `comma` for comma-separated data and `tab` - for tabular separation. Optional, default behaviour derived from file extension - for csv is `,`, for tsv - `\t`.
+  * `text_1` - column id for text (Optional, default - 0).
+  * `text_2` - column id for text for sentence pair classification task (Optional, default - 1).
+  * `label` - column id for label gold score (Optional, default - 2).
+  * `vocab_file` -  path to model vocabulary file for WordPiece tokenization (Optional in case, when another tokenization approach used).
+  * `sentence_piece_model_file` - model used for [SentencePiece](https://github.com/google/sentencepiece) tokenization (Optional in case, when another tokenization approach used).
+  * `max_seq_length` - maximum total input sequence length after word-piece tokenization (Optional, default value is 128).
+  * `lower_case` - allows switching tokens to lower case register. It is useful for working with uncased models (Optional, default value is False).
+  * `enable_padding` - pad sequence to maximum sequence length (Optional, default `True`).
+  You also can use [HuggingFace Transformers](https://huggingface.co/transformers/index.html) library capabilities for tokenization with providing `model_id` for downloading tokenizer files from huggingface.co or `tokenizer_dir` for specification pretrained model directory instead vocab_file or sentencepiece model.
+    e.g. using tokenizer for roberta-base should be
+    ```yaml
+        model_id: roberta-base
+    ```
+    or
+    ```yaml
+        tokenizer_dir: <model_saving_path>/roberta-base
 * `bert_xnli_tf_record` - converts The Cross-lingual Natural Language Inference Corpus ([XNLI](https://github.com/facebookresearch/XNLI)) stored in tf records format. This converter usage requires TensorFlow installation. Please make sure that TensorFlow installed before conversion.
   * `annotattion_file` - path to annotation file in tf records format.
 * `cmu_panoptic_keypoints` - converts CMU Panoptic dataset to `PoseEstimation3dAnnotation` format.
   * `data_dir` - dataset root directory, which contain subdirectories with validation scenes data.
-* `clip_action_recognition` - converts annotation video-based action recognition datasets. Before conversion validation set should be preprocessed using approach described [here](https://github.com/openvinotoolkit/training_extensions/blob/develop/misc/pytorch_toolkit/action_recognition/README.md#preparation).
+* `clip_action_recognition` - converts annotation video-based action recognition datasets. Before conversion validation set should be preprocessed using approach described [here](https://github.com/openvinotoolkit/training_extensions/tree/master/misc/pytorch_toolkit/action_recognition#preparation).
   * `annotation_file` - path to annotation file in json format.
   * `data_dir` - path to directory with prepared data (e. g. data/kinetics/frames_data).
   * `clips_per_video` - number of clips per video (Optional, default 3).
@@ -697,13 +721,14 @@ The main difference between this converter and `super_resolution` in data organi
    * `features_subset_file` - file with list testing ark files, Optional, if not provided, all found in `data_dir` files will be used.
    * `ivectors` - include ivectors features to input, Optional, default `False`.
 * `kaldi_feat_regression` - converts preprocessed Kaldi\* features to `RegressionAnnotation`.
-  * `data_dir` - directory with input ark files.
-  * `features_subset_file` - file with list testing ark files, Optional, if not provided, all found in `data_dir` files will be used. Subset file has following format: each line stores information about input sample. Input sample consists of space separated list of input files and ends with reference file name.
+  * `data_dir` - directory with input ark or npz files.
+  * `features_subset_file` - file with list testing ark or npz files, Optional, if not provided, all found in `data_dir` files will be used. Subset file has following format: each line stores information about input sample. Input sample consists of space separated list of input files and ends with reference file name.
   * `ivectors` - include ivectors features to input, Optional, default `False`.
-  * `ref_data_dir` - directory with reference ark files (Optional, if not provided `data_dir` will be used instead).
+  * `ref_data_dir` - directory with reference ark or npz files (Optional, if not provided `data_dir` will be used instead).
   * `vectors_mode` - allow usage each vector in utterance as independent data.
   * `ref_file_suffix` - suffix for search reference files (Optional, default `_kaldi_score`).
   * `utterance_name_agnostic`  - allow ignoring utterance name during conversion. Optional, default required utterance keys matching.
+  * `use_numpy_data` - allow using data stored in npz instead ark files as preferable data format.
 * `electricity` - converts Electricity dataset to `TimeSeriesForecastingAnnotation`.
   * `data_path_file` - Path to dataset file in .csv format.
   * `num_encoder_steps` - The maximum number of historical timestamps that model use.
@@ -768,7 +793,11 @@ The main difference between this converter and `super_resolution` in data organi
   * `annotation_file` - path to `Deepvariant WGS` preprocessed dataset file
   * `preprocessed_dir` - path to preprocessed data
   * `skip_dump` - allow to skip storing preprocessed data. (Optional, default: `False`)
-
+* `common_text_recognition` - converts annotation for text recognition tasks (e.g. optical character recognition, automatic speech recognition) to `CharacterRecognitionAnnotation`.
+  * `annotation_file` - path to file with annotation, where each line represented as `[input_file]` `[reference]`.
+* `speaker_reidentification` - converts annotation for speaker/sound reidentification dataset to `ReidentificationClassificationAnnotation`.
+  * `annotation_file` - text file containing reidentification pairs in following format: `[is_positive] [audio_1] [audio_2]`, where `is_positive` - indicator that pair is positive (1 if speaker is the same, 0 if speakers are different), `audio_1` and `audio_2` are path to the first and the second audio files respectively.
+  * `max_pairs` - limit for selection pairs for each image (Optional, by default use all founded pairs in annotation).
 ## <a name="customizing-dataset-meta"></a>Customizing Dataset Meta
 There are situations when we need to customize some default dataset parameters (e.g. replace original dataset label map with own.)
 You are able to overload parameters such as `label_map`, `segmentation_colors`, `background_label` using `dataset_meta_file` argument.

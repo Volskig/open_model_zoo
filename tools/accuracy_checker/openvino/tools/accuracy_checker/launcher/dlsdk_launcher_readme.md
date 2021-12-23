@@ -1,16 +1,16 @@
 # How to configure OpenVINO™ launcher
 
 OpenVINO™ launcher is one of the supported wrappers for easily launching models within Accuracy Checker tool. This launcher uses OpenVINO™ Inference Engine as inference backend and accepts for executing networks in OpenVINO™ supported formats.
-
+**Note:** Since OpenVINO™ 2022.1, API used as base for this launcher is deprecated, for usage new APO you can specify `--use_new_api True` in command line. More details about launcher with OpenVINO 2.0 API support can be found [here](openvino_launcher_readme.md)
 For enabling OpenVINO™ launcher you need to add `framework: dlsdk` in launchers section of your configuration file and provide following parameters:
 
-* `device` - specifies which device will be used for infer. Supported: `CPU`, `GPU`, `FPGA`, `MYRIAD`, `HDDL`,
+* `device` - specifies which device will be used for infer. Supported: `CPU`, `GPU`, `GNA`, `MYRIAD`, `HDDL`,
     Heterogeneous plugin as `HETERO:target_device,fallback_device` and Multi device plugin as `MULTI:target_device1,target_device2`.
 
-    If you have several MYRIAD devices in your machine, you are able to provide specific device id in such way: `MYRIAD.<DEVICE_ID>` (e.g. `MYRIAD.1.2-ma2480`)
+    If you have several devices in your machine, you are able to provide specific device id in such way: `<DEVICE>.<DEVICE_ID>` (e.g. `MYRIAD.1.2-ma2480`)
 
     It is possible to specify one or more devices via `-td, --target devices` command line argument. Target device will be selected from command line (in case when several devices provided, evaluations will be run one by one with all specified devices).
-* `model` - path to xml file with model for your topology or compiled executable network.
+* `model` - path to model for your topology or compiled executable network. You also can provide path to directory with model for automatic model search inside directory and help to find it specifying `--model_type`. Supported model types: `xml`, `onnx`, `paddle`, `tf`, `blob`.
 * `weights` - path to bin file with weights for your topology (Optional, the argument can be omitted if bin file stored in the same directory with model xml or if you use compiled blob).
 * `adapter` - approach how raw output will be converted to representation of dataset problem, some adapters can be specific to framework. You can find detailed instruction how to use adapters [here](../adapters/README.md).
 
@@ -22,7 +22,6 @@ Additionally you can provide device specific parameters:
 
 * `cpu_extensions` (path to extension file with custom layers for cpu). You can also use special key `AUTO` for automatic search cpu extensions library in the provided as command line argument directory (option `-e, --extensions`)
 * `gpu_extensions` (path to extension *.xml file with OpenCL kernel description for gpu).
-* `bitstream` for running on FPGA.
 
 Launcher understands which batch size will be used from model intermediate representation (IR). If you want to use batch for infer, please, provide model with required batch or convert it using specific parameter in `mo_params`.
 
@@ -91,7 +90,7 @@ OpenVINO™ launcher config example:
 ```yml
 launchers:
   - framework: dlsdk
-    device: HETERO:FPGA,CPU
+    device: HETERO:GPU,CPU
     caffe_model: path_to_model/alexnet.prototxt
     caffe_weights: path_to_weights/alexnet.caffemodel
     adapter: classification

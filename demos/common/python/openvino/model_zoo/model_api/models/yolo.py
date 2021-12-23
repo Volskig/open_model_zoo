@@ -13,11 +13,9 @@
 
 from collections import namedtuple
 import numpy as np
-import ngraph
 
-from .model import Model
 from .detection_model import DetectionModel
-from .utils import Detection, clip_detections, load_labels, nms, resize_image
+from .utils import Detection, clip_detections, nms, resize_image, INTERPOLATION_TYPES
 
 DetectionBox = namedtuple('DetectionBox', ["x", "y", "w", "h"])
 
@@ -73,37 +71,41 @@ class YOLO(DetectionModel):
 
                 self.use_input_size = True  # Weak way to determine but the only one.
 
-    def __init__(self, ie, model_path, resize_type='fit_to_window_letterbox',
+    def __init__(self, model_adapter, resize_type='fit_to_window_letterbox',
                  labels=None, threshold=0.5, iou_threshold=0.5):
         if not resize_type:
             resize_type = 'fit_to_window_letterbox'
-        super().__init__(ie, model_path, resize_type,
+        super().__init__(model_adapter, resize_type,
                          labels=labels, threshold=threshold, iou_threshold=iou_threshold)
-        self.is_tiny = self.net.name.lower().find('tiny') != -1  # Weak way to distinguish between YOLOv4 and YOLOv4-tiny
+        self.is_tiny = len(self.outputs) == 2  # Weak way to distinguish between YOLOv4 and YOLOv4-tiny
 
         self._check_io_number(1, -1)
 
-        if self.net.input_info[self.image_blob_name].input_data.shape[1] == 3:
-            self.n, self.c, self.h, self.w = self.net.input_info[self.image_blob_name].input_data.shape
+        if self.inputs[self.image_blob_name].shape[1] == 3:
+            self.n, self.c, self.h, self.w = self.inputs[self.image_blob_name].shape
             self.image_layout = 'NCHW'
         else:
-            self.n, self.h, self.w, self.c = self.net.input_info[self.image_blob_name].input_data.shape
+            self.n, self.h, self.w, self.c = self.inputs[self.image_blob_name].shape
             self.image_layout = 'NHWС'
 
         self.yolo_layer_params = self._get_output_info()
 
     def _get_output_info(self):
-        def get_parent(node):
-            return node.inputs()[0].get_source_output().get_node()
-        ng_func = ngraph.function_from_cnn(self.net)
         output_info = {}
-        for node in ng_func.get_ordered_ops():
-            layer_name = node.get_friendly_name()
-            if layer_name not in self.net.outputs:
-                continue
-            shape = list(get_parent(node).shape)
-            yolo_params = self.Params(node._get_attributes(), shape[2:4])
-            output_info[layer_name] = (shape, yolo_params)
+        for name, info in self.outputs.items():
+            shape = info.shape
+            if len(shape) == 2:
+                # we use 32x32 cell as default, cause 1D tensor is V2 specific
+                cx = self.w // 32
+                cy = self.h // 32
+
+                bboxes = shape[1] // (cx*cy)
+                print(cx, cy, bboxes, self.w)
+                if self.w % 32 != 0 or self.h % 32 !=0 or shape[1] % (cx*cy) != 0:
+                    raise RuntimeError('The Yolo wrapper cannot reshape 2D output')
+                shape = (shape[0], bboxes, cy, cx)
+            params = self.Params(info.meta, shape[2:4])
+            output_info[name] = (shape, params)
         return output_info
 
     def postprocess(self, outputs, meta):
@@ -230,12 +232,12 @@ class YoloV4(YOLO):
             self.anchors = masked_anchors
             self.use_input_size = True
 
-    def __init__(self, ie, model_path, resize_type='fit_to_window_letterbox',
+    def __init__(self, model_adapter, resize_type='fit_to_window_letterbox',
                  labels=None, threshold=0.5, iou_threshold=0.5,
                  anchors=None, masks=None):
         self.anchors = anchors
         self.masks = masks
-        super().__init__(ie, model_path, resize_type,
+        super().__init__(model_adapter, resize_type,
                          labels=labels, threshold=threshold, iou_threshold=iou_threshold)
 
     def _get_output_info(self):
@@ -244,7 +246,7 @@ class YoloV4(YOLO):
         if not self.masks:
             self.masks = [1, 2, 3, 3, 4, 5] if self.is_tiny else [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
-        outputs = sorted(self.net.outputs.items(), key=lambda x: x[1].shape[2], reverse=True)
+        outputs = sorted(self.outputs.items(), key=lambda x: x[1].shape[2], reverse=True)
 
         output_info = {}
         num = 3
@@ -284,9 +286,9 @@ class YOLOF(YOLO):
             self.anchors = anchors
             self.use_input_size = True
 
-    def __init__(self, ie, model_path, resize_type='standard',
+    def __init__(self, model_adapter, resize_type='standard',
                  labels=None, threshold=0.5, iou_threshold=0.5):
-        super().__init__(ie, model_path, resize_type,
+        super().__init__(model_adapter, resize_type,
                          labels=labels, threshold=threshold, iou_threshold=iou_threshold)
 
     def _get_output_info(self):
@@ -294,7 +296,7 @@ class YOLOF(YOLO):
 
         output_info = {}
         num = 6
-        for i, (name, layer) in enumerate(self.net.outputs.items()):
+        for i, (name, layer) in enumerate(self.outputs.items()):
             shape = layer.shape
             classes = shape[1] // num - 4
             yolo_params = self.Params(classes, num, shape[2:4], anchors)
@@ -317,23 +319,13 @@ class YOLOF(YOLO):
         return DetectionBox(x, y, width, height)
 
 
-class YOLOX(Model):
-    def __init__(self, ie, model_path, labels=None, threshold=0.5):
-        super().__init__(ie, model_path)
+class YOLOX(DetectionModel):
+    def __init__(self, model_adapter, labels=None, threshold=0.5, iou_threshold=0.65):
+        super().__init__(model_adapter, labels=labels,
+                         threshold=threshold, iou_threshold=iou_threshold)
         self._check_io_number(1, 1)
-        self.image_blob_name = next(iter(self.net.input_info))
-        self.output_blob_name = next(iter(self.net.outputs))
+        self.output_blob_name = next(iter(self.outputs))
 
-        self.n, self.c, self.h, self.w = self.net.input_info[self.image_blob_name].input_data.shape
-        assert self.c == 3, "Expected 3-channel input"
-
-        if isinstance(labels, (list, tuple)):
-            self.labels = labels
-        else:
-            self.labels = load_labels(labels) if labels else None
-
-        self.threshold = threshold
-        self.nms_threshold = 0.65
         self.expanded_strides = []
         self.grids = []
         self.set_strides_grids()
@@ -370,7 +362,7 @@ class YOLOX(Model):
         x_mins, y_mins, x_maxs, y_maxs = boxes[i].T
         scores = valid_predictions[i, j + 5]
 
-        keep_nms = nms(x_mins, y_mins, x_maxs, y_maxs, scores, self.nms_threshold, include_boundaries=True)
+        keep_nms = nms(x_mins, y_mins, x_maxs, y_maxs, scores, self.iou_threshold, include_boundaries=True)
 
         detections = [Detection(*det) for det in zip(x_mins[keep_nms], y_mins[keep_nms], x_maxs[keep_nms],
                                                      y_maxs[keep_nms], scores[keep_nms], j[keep_nms])]
@@ -403,3 +395,82 @@ class YOLOX(Model):
         y[:, 2] = x[:, 0] + x[:, 2] / 2
         y[:, 3] = x[:, 1] + x[:, 3] / 2
         return y
+
+
+class YoloV3ONNX(DetectionModel):
+    def __init__(self, model_adapter, resize_type='fit_to_window_letterbox', labels=None, threshold=0.5):
+        if not resize_type:
+            resize_type = 'fit_to_window_letterbox'
+        super().__init__(model_adapter, resize_type, labels=labels, threshold=threshold)
+        self.image_info_blob_name = self.image_info_blob_names[0] if len(self.image_info_blob_names) == 1 else None
+        self._check_io_number(2, 3)
+        self.classes = 80
+        self.bboxes_blob_name, self.scores_blob_name, self.indices_blob_name = self._get_outputs()
+
+    def _get_outputs(self):
+        bboxes_blob_name = None
+        scores_blob_name = None
+        indices_blob_name = None
+        for name, layer in self.outputs.items():
+            if layer.shape[-1] == 3:
+                indices_blob_name = name
+            elif layer.shape[2] == 4:
+                bboxes_blob_name = name
+            elif layer.shape[1] == self.classes:
+                scores_blob_name = name
+            else:
+                raise RuntimeError("Expected shapes [:,:,4], [:,{},:] and [:,3] for outputs, but got {}, {} and {}"
+                                   .format(self.classes, *[output.shape for output in self.outputs.values()]))
+        if self.outputs[bboxes_blob_name].shape[1] != self.outputs[scores_blob_name].shape[2]:
+            raise RuntimeError("Expected the same dimension for boxes and scores, but got {} and {}".format(
+                self.outputs[bboxes_blob_name].shape[1], self.outputs[scores_blob_name].shape[2]))
+        return bboxes_blob_name, scores_blob_name, indices_blob_name
+
+    def preprocess(self, inputs):
+        image = inputs
+        meta = {'original_shape': image.shape}
+        resized_image = self.resize(image, (self.w, self.h), interpolation=INTERPOLATION_TYPES['CUBIC'])
+        meta.update({'resized_shape': resized_image.shape})
+        resized_image = self._change_layout(resized_image)
+        dict_inputs = {
+            self.image_blob_name: resized_image,
+            self.image_info_blob_name: [image.shape[0], image.shape[1]]
+        }
+        return dict_inputs, meta
+
+    def postprocess(self, outputs, meta):
+        detections = self._parse_outputs(outputs)
+        detections = clip_detections(detections, meta['original_shape'])
+        return detections
+
+    def _parse_outputs(self, outputs):
+        boxes = outputs[self.bboxes_blob_name][0]
+        scores = outputs[self.scores_blob_name][0]
+        indices = outputs[self.indices_blob_name] if len(
+            outputs[self.indices_blob_name].shape) == 2 else outputs[self.indices_blob_name][0]
+
+        out_boxes, out_scores, out_classes = [], [], []
+        for idx_ in indices:
+            if idx_[0] == -1:
+                break
+            out_classes.append(idx_[1])
+            out_scores.append(scores[tuple(idx_[1:])])
+            out_boxes.append(boxes[idx_[2]])
+        transposed_boxes = np.array(out_boxes).T if out_boxes else ([], [], [], [])
+        mask = np.array(out_scores) > self.threshold
+
+        if mask.size == 0:
+            return []
+
+        out_classes, out_scores, transposed_boxes = (np.array(out_classes)[mask], np.array(out_scores)[mask],
+                                                     transposed_boxes[:, mask])
+
+        x_mins = transposed_boxes[1]
+        y_mins = transposed_boxes[0]
+        x_maxs = transposed_boxes[3]
+        y_maxs = transposed_boxes[2]
+
+        detections = [Detection(*det) for det in zip(x_mins, y_mins, x_maxs,
+                                                     y_maxs, out_scores, out_classes)]
+
+        return detections

@@ -51,7 +51,6 @@ from .attributes_recognition import (
 from .reidentification import ReidAdapter
 from .detection import (
     TFObjectDetectionAPIAdapter,
-    MTCNNPAdapter,
     ClassAgnosticDetectionAdapter,
     FaceBoxesAdapter,
     FaceDetectionAdapter,
@@ -62,6 +61,7 @@ from .detection import (
     UltraLightweightFaceDetectionAdapter,
     PPDetectionAdapter
 )
+from .mtcnn import MTCNNPAdapter
 from .detection_person_vehicle import (
     PersonVehicleDetectionAdapter,
     PersonVehicleDetectionRefinementAdapter
@@ -77,6 +77,7 @@ from .classification import ClassificationAdapter, MaskToBinaryClassification
 from .segmentation import (
     SegmentationAdapter, BrainTumorSegmentationAdapter, DUCSegmentationAdapter, BackgroundMattingAdapter
 )
+from .facial_landmarks_98_detection import FacialLandmarksAdapter
 from .pose_estimation import HumanPoseAdapter, SingleHumanPoseAdapter, StackedHourGlassNetworkAdapter
 from .pose_estimation_openpose import OpenPoseAdapter
 from .pose_estimation_associative_embedding import AssociativeEmbeddingAdapter
@@ -132,7 +133,6 @@ __all__ = [
     'ClassificationAdapter',
 
     'TFObjectDetectionAPIAdapter',
-    'MTCNNPAdapter',
     'CTDETAdapter',
     'RetinaNetAdapter',
     'RetinaNetTF2',
@@ -150,6 +150,8 @@ __all__ = [
     'DETRAdapter',
     'UltraLightweightFaceDetectionAdapter',
     'PPDetectionAdapter',
+    'FacialLandmarksAdapter',
+    'MTCNNPAdapter',
 
     'TinyYOLOv1Adapter',
     'YoloV2Adapter',
